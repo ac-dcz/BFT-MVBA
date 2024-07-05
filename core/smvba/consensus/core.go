@@ -16,11 +16,14 @@ type Core struct {
 	Store      *store.Store
 	TxPool     *pool.Pool
 	Transimtor *core.Transmitor
+	Aggreator  *Aggreator
+	Elector    *Elector
 
-	FinishFlags  map[int64]map[int]struct{} // finish? map[epoch][nodeId]
-	SPbInstances map[int64]map[int64]*SPB   // map[epoch][round]
-
-	Epoch int64
+	FinishFlags  map[int64]map[int64]map[core.NodeID]crypto.Digest // finish? map[epoch][round][node] = blockHash
+	SPbInstances map[int64]map[int64]map[core.NodeID]*SPB          // map[epoch][node][round]
+	DoneFlags    map[int64]map[int64]struct{}
+	ReadyFlags   map[int64]map[int64]struct{}
+	Epoch        int64
 }
 
 func NewCore(
@@ -42,8 +45,12 @@ func NewCore(
 		TxPool:       TxPool,
 		Transimtor:   Transimtor,
 		Epoch:        0,
-		FinishFlags:  make(map[int64]map[int]struct{}),
-		SPbInstances: make(map[int64]map[int64]*SPB),
+		Aggreator:    NewAggreator(Committee),
+		Elector:      NewElector(SigService, Committee),
+		FinishFlags:  make(map[int64]map[int64]map[core.NodeID]crypto.Digest),
+		SPbInstances: make(map[int64]map[int64]map[core.NodeID]*SPB),
+		DoneFlags:    make(map[int64]map[int64]struct{}),
+		ReadyFlags:   make(map[int64]map[int64]struct{}),
 	}
 
 	return c
@@ -74,15 +81,43 @@ func (c *Core) getBlock(digest crypto.Digest) (*Block, error) {
 	return b, err
 }
 
-func (c *Core) getSpbInstance(epoch, round int64) *SPB {
+func (c *Core) getSpbInstance(epoch, round int64, node core.NodeID) *SPB {
 	rItems, ok := c.SPbInstances[epoch]
 	if !ok {
-		rItems = make(map[int64]*SPB)
+		rItems = make(map[int64]map[core.NodeID]*SPB)
+		c.SPbInstances[epoch] = rItems
 	}
-	instance := NewSPB(c, epoch, round)
-	rItems[round] = instance
+	instances, ok := rItems[round]
+	if !ok {
+		instances = make(map[core.NodeID]*SPB)
+		rItems[round] = instances
+	}
+	instance := NewSPB(c, epoch, round, node)
+	instances[node] = instance
 
 	return instance
+}
+
+func (c *Core) hasFinish(epoch, round int64, node core.NodeID) (bool, crypto.Digest) {
+	if items, ok := c.FinishFlags[epoch]; !ok {
+		return false, crypto.Digest{}
+	} else {
+		if item, ok := items[round]; !ok {
+			return false, crypto.Digest{}
+		} else {
+			d, ok := item[node]
+			return ok, d
+		}
+	}
+}
+
+func (c *Core) hasReady(epoch, round int64) bool {
+	if items, ok := c.ReadyFlags[epoch]; !ok {
+		return false
+	} else {
+		_, ok = items[round]
+		return ok
+	}
 }
 
 /*********************************** Protocol Start***************************************/
@@ -102,7 +137,7 @@ func (c *Core) handleSpbProposal(p *SPBProposal) error {
 		}
 	}
 
-	spb := c.getSpbInstance(p.Epoch, p.Round)
+	spb := c.getSpbInstance(p.Epoch, p.Round, p.Author)
 	go spb.processProposal(p)
 
 	return nil
@@ -116,7 +151,7 @@ func (c *Core) handleSpbVote(v *SPBVote) error {
 		return nil
 	}
 
-	spb := c.getSpbInstance(v.Epoch, v.Round)
+	spb := c.getSpbInstance(v.Epoch, v.Round, v.Proposer)
 	go spb.processVote(v)
 
 	return nil
@@ -128,6 +163,40 @@ func (c *Core) handleFinish(f *Finish) error {
 	//discard message
 	if c.messgaeFilter(f.Epoch) {
 		return nil
+	}
+	if ok, err := c.Aggreator.AddFinishVote(f); err != nil {
+		return err
+	} else if !ok {
+		rF, ok := c.FinishFlags[f.Epoch]
+		if !ok {
+			rF = make(map[int64]map[core.NodeID]crypto.Digest)
+		}
+		nF, ok := rF[f.Round]
+		if !ok {
+			nF = make(map[core.NodeID]crypto.Digest)
+		}
+		nF[f.Author] = f.BlockHash
+	} else {
+		return c.invokeDoneAndShare(f.Epoch, f.Round)
+	}
+
+	return nil
+}
+
+func (c *Core) invokeDoneAndShare(epoch, round int64) error {
+	logger.Debug.Printf("Processing invoke Done and Share epoch %d,roubd %d\n", epoch, round)
+
+	if _, ok := c.DoneFlags[epoch][round]; !ok {
+
+		done, _ := NewDone(c.Name, epoch, round, c.SigService)
+		share, _ := NewElectShare(c.Name, epoch, round, c.SigService)
+
+		c.Transimtor.Send(c.Name, core.NONE, done)
+		c.Transimtor.Send(c.Name, core.NONE, share)
+		c.Transimtor.RecvChannel() <- done
+		c.Transimtor.RecvChannel() <- share
+
+		c.DoneFlags[epoch][round] = struct{}{}
 	}
 
 	return nil
@@ -141,6 +210,20 @@ func (c *Core) handleDone(d *Done) error {
 		return nil
 	}
 
+	if flag, err := c.Aggreator.AddDoneVote(d); err != nil {
+		return err
+	} else if flag == 1 {
+		return c.invokeDoneAndShare(d.Epoch, d.Round)
+	} else if flag == 2 {
+		items, ok := c.ReadyFlags[d.Epoch]
+		if !ok {
+			items = make(map[int64]struct{})
+			c.ReadyFlags[d.Epoch] = items
+		}
+		items[d.Round] = struct{}{}
+		return c.processLeader(d.Epoch, d.Round)
+	}
+
 	return nil
 }
 
@@ -150,6 +233,38 @@ func (c *Core) handleElectShare(share *ElectShare) error {
 	//discard message
 	if c.messgaeFilter(share.Epoch) {
 		return nil
+	}
+
+	if leader, err := c.Elector.AddShareVote(share); err != nil {
+		return err
+	} else if leader != core.NONE {
+		c.processLeader(share.Epoch, share.Round)
+	}
+
+	return nil
+}
+
+func (c *Core) processLeader(epoch, round int64) error {
+
+	if c.hasReady(epoch, round) {
+		if leader := c.Elector.Leader(epoch, round); leader != core.NONE {
+			if ok, d := c.hasFinish(epoch, round, leader); ok {
+				//send halt
+				halt, _ := NewHalt(c.Name, leader, d, epoch, c.SigService)
+				c.Transimtor.Send(c.Name, core.NONE, halt)
+				c.Transimtor.RecvChannel() <- halt
+			} else {
+				//send preVote
+				var preVote *Prevote
+				if spb := c.getSpbInstance(epoch, round, leader); spb.IsLock() {
+					preVote, _ = NewPrevote(c.Name, epoch, round, VOTE_FLAG_YES, c.SigService)
+				} else {
+					preVote, _ = NewPrevote(c.Name, epoch, round, VOTE_FLAG_NO, c.SigService)
+				}
+				c.Transimtor.Send(c.Name, core.NONE, preVote)
+				c.Transimtor.RecvChannel() <- preVote
+			}
+		}
 	}
 
 	return nil

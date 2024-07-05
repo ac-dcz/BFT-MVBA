@@ -86,3 +86,8 @@ func (c Committee) LowThreshold() int {
 	n := len(c.Authorities)
 	return (n-1)/3 + 1
 }
+
+const (
+	HightTH int = iota
+	LowTH
+)

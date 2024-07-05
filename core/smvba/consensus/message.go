@@ -354,13 +354,17 @@ func (*FinVote) MsgType() int {
 type Halt struct {
 	Author    core.NodeID
 	Epoch     int64
+	Leader    core.NodeID
+	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewHalt(Author core.NodeID, Epoch int64, sigService *crypto.SigService) (*Halt, error) {
+func NewHalt(Author, Leader core.NodeID, BlockHash crypto.Digest, Epoch int64, sigService *crypto.SigService) (*Halt, error) {
 	h := &Halt{
-		Author: Author,
-		Epoch:  Epoch,
+		Author:    Author,
+		Epoch:     Epoch,
+		Leader:    Leader,
+		BlockHash: BlockHash,
 	}
 	sig, err := sigService.RequestSignature(h.Hash())
 	if err != nil {
@@ -379,6 +383,8 @@ func (h *Halt) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(strconv.AppendInt(nil, int64(h.Author), 2))
 	hasher.Add(strconv.AppendInt(nil, h.Epoch, 2))
+	hasher.Add(strconv.AppendInt(nil, int64(h.Leader), 2))
+	hasher.Add(h.BlockHash[:])
 	return hasher.Sum256(nil)
 }
 

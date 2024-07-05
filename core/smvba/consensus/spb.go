@@ -24,11 +24,12 @@ type SPB struct {
 	LockFlag atomic.Bool
 }
 
-func NewSPB(c *Core, epoch, round int64) *SPB {
+func NewSPB(c *Core, epoch, round int64, proposer core.NodeID) *SPB {
 	return &SPB{
 		c:            c,
 		Epoch:        epoch,
 		Round:        round,
+		Proposer:     proposer,
 		unHandleVote: make([]*SPBVote, 0),
 		Votes:        make(map[int8]int),
 	}
@@ -37,13 +38,12 @@ func NewSPB(c *Core, epoch, round int64) *SPB {
 func (s *SPB) processProposal(p *SPBProposal) {
 	if p.Phase == SPB_ONE_PHASE {
 		// already recieve
-		if s.BlockHash.Load() != nil {
+		if s.BlockHash.Load() != nil || s.Proposer != p.B.Proposer {
 			return
 		}
 
 		blockHash := p.B.Hash()
 		s.BlockHash.Store(blockHash)
-		s.Proposer = p.B.Proposer
 
 		if vote, err := NewSPBVote(s.c.Name, p.Author, blockHash, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
