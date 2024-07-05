@@ -21,7 +21,7 @@ func NewElector(sigService *crypto.SigService, committee core.Committee) *Electo
 	}
 }
 
-func (e *Elector) addLeader(epoch, round int64, leader core.NodeID) {
+func (e *Elector) SetLeader(epoch, round int64, leader core.NodeID) {
 	items, ok := e.leaders[epoch]
 	if !ok {
 		items = make(map[int64]core.NodeID)
@@ -60,7 +60,7 @@ func (e *Elector) AddShareVote(share *ElectShare) (core.NodeID, error) {
 		return core.NONE, nil
 	}
 	if node != core.NONE {
-		e.addLeader(share.Epoch, share.Round, node)
+		e.SetLeader(share.Epoch, share.Round, node)
 	}
 	return node, nil
 }

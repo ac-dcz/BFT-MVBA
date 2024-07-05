@@ -99,7 +99,6 @@ const RANDOM_LEN = 3
 type ElectAggreator struct {
 	shares  []crypto.SignatureShare
 	authors map[core.NodeID]struct{}
-	flag    bool
 }
 
 func NewElectAggreator() *ElectAggreator {
@@ -131,4 +130,84 @@ func (e *ElectAggreator) Append(committee core.Committee, sigService *crypto.Sig
 		return core.NodeID(rand) % core.NodeID(committee.Size()), nil
 	}
 	return core.NONE, nil
+}
+
+const (
+	ACTION_YES int8 = iota
+	ACTION_NO
+	ACTION_COMMIT
+	ACTION_NONE
+)
+
+type PreVoteAggreator struct {
+	authors map[core.NodeID]struct{}
+	yesNums int64
+	noNums  int64
+	flag    bool
+}
+
+func NewPrevoteAggreator() *PreVoteAggreator {
+	return &PreVoteAggreator{
+		authors: make(map[core.NodeID]struct{}),
+		yesNums: 0,
+		noNums:  0,
+		flag:    false,
+	}
+}
+
+func (p *PreVoteAggreator) Append(committee core.Committee, vote *Prevote) (int8, error) {
+	if _, ok := p.authors[vote.Author]; ok {
+		return ACTION_NONE, core.ErrOneMoreMessage(vote.MsgType(), vote.Epoch, vote.Round, vote.Author)
+	}
+	p.authors[vote.Author] = struct{}{}
+	if vote.Flag == VOTE_FLAG_NO {
+		p.noNums++
+	} else {
+		p.yesNums++
+	}
+
+	if p.yesNums > 0 && p.flag == false {
+		p.flag = true
+		return ACTION_YES, nil
+	}
+	if p.noNums == int64(committee.HightThreshold()) && p.flag == false {
+		return ACTION_NO, nil
+	}
+	return ACTION_NONE, nil
+}
+
+type FinVoteAggreator struct {
+	authors map[core.NodeID]struct{}
+	yesNums int64
+	noNums  int64
+}
+
+func NewFinVoteAggreator() *FinVoteAggreator {
+	return &FinVoteAggreator{
+		authors: make(map[core.NodeID]struct{}),
+		yesNums: 0,
+		noNums:  0,
+	}
+}
+
+func (f *FinVoteAggreator) Append(committee core.Committee, vote *FinVote) (int8, error) {
+	if _, ok := f.authors[vote.Author]; ok {
+		return ACTION_NONE, core.ErrOneMoreMessage(vote.MsgType(), vote.Epoch, vote.Round, vote.Author)
+	}
+	f.authors[vote.Author] = struct{}{}
+	if vote.Flag == VOTE_FLAG_YES {
+		f.yesNums++
+	} else {
+		f.noNums++
+	}
+	var th int64 = int64(committee.HightThreshold())
+	if f.yesNums+f.noNums == th {
+		if f.yesNums == th {
+			return ACTION_COMMIT, nil
+		} else if f.noNums == th {
+			return ACTION_NO, nil
+		}
+		return ACTION_YES, nil
+	}
+	return ACTION_NONE, nil
 }

@@ -18,11 +18,13 @@ type Core struct {
 	Transimtor *core.Transmitor
 	Aggreator  *Aggreator
 	Elector    *Elector
+	Commitor   *Committor
 
 	FinishFlags  map[int64]map[int64]map[core.NodeID]crypto.Digest // finish? map[epoch][round][node] = blockHash
 	SPbInstances map[int64]map[int64]map[core.NodeID]*SPB          // map[epoch][node][round]
 	DoneFlags    map[int64]map[int64]struct{}
 	ReadyFlags   map[int64]map[int64]struct{}
+	HaltFlags    map[int64]struct{}
 	Epoch        int64
 }
 
@@ -34,6 +36,7 @@ func NewCore(
 	Store *store.Store,
 	TxPool *pool.Pool,
 	Transimtor *core.Transmitor,
+	callBack chan<- struct{},
 ) *Core {
 
 	c := &Core{
@@ -47,10 +50,12 @@ func NewCore(
 		Epoch:        0,
 		Aggreator:    NewAggreator(Committee),
 		Elector:      NewElector(SigService, Committee),
+		Commitor:     NewCommittor(callBack),
 		FinishFlags:  make(map[int64]map[int64]map[core.NodeID]crypto.Digest),
 		SPbInstances: make(map[int64]map[int64]map[core.NodeID]*SPB),
 		DoneFlags:    make(map[int64]map[int64]struct{}),
 		ReadyFlags:   make(map[int64]map[int64]struct{}),
+		HaltFlags:    make(map[int64]struct{}),
 	}
 
 	return c
@@ -120,9 +125,26 @@ func (c *Core) hasReady(epoch, round int64) bool {
 	}
 }
 
+func (c *Core) generatorBlock(epoch int64) *Block {
+	block := NewBlock(c.Name, c.TxPool.GetBatch(), epoch)
+	if len(block.Batch.Txs) > 0 {
+		logger.Info.Printf("create Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+	}
+	return block
+}
+
 /*********************************** Protocol Start***************************************/
 func (c *Core) handleSpbProposal(p *SPBProposal) error {
 	logger.Debug.Printf("Processing SPBProposal epoch %d round %d phase %d\n", p.Epoch, p.Round, p.Phase)
+
+	//ensure all block is received
+	if p.Phase == SPB_ONE_PHASE {
+		if _, ok := c.HaltFlags[p.Epoch]; ok {
+			if leader := c.Elector.Leader(p.Epoch, p.Round); leader == p.Author {
+				c.Commitor.Commit(p.B)
+			}
+		}
+	}
 
 	//discard message
 	if c.messgaeFilter(p.Epoch) {
@@ -250,7 +272,7 @@ func (c *Core) processLeader(epoch, round int64) error {
 		if leader := c.Elector.Leader(epoch, round); leader != core.NONE {
 			if ok, d := c.hasFinish(epoch, round, leader); ok {
 				//send halt
-				halt, _ := NewHalt(c.Name, leader, d, epoch, c.SigService)
+				halt, _ := NewHalt(c.Name, leader, d, epoch, round, c.SigService)
 				c.Transimtor.Send(c.Name, core.NONE, halt)
 				c.Transimtor.RecvChannel() <- halt
 			} else {
@@ -299,11 +321,61 @@ func (c *Core) handleHalt(h *Halt) error {
 	if c.messgaeFilter(h.Epoch) {
 		return nil
 	}
+
+	//Check leader
+
+	if _, ok := c.HaltFlags[h.Epoch]; !ok {
+		c.Elector.SetLeader(h.Epoch, h.Round, h.Leader)
+		if err := c.handleOutput(h.Epoch, h.BlockHash); err != nil {
+			return err
+		}
+		c.HaltFlags[h.Epoch] = struct{}{}
+		c.advanceNextEpoch(h.Epoch + 1)
+	}
+
+	return nil
+}
+
+func (c *Core) handleOutput(epoch int64, blockHash crypto.Digest) error {
+	logger.Debug.Printf("Processing Ouput epoch %d \n", epoch)
+	if b, err := c.getBlock(blockHash); err != nil {
+		if err == store.ErrNotFoundKey {
+			// retriever
+			logger.Debug.Printf("Processing retriever epoch %d \n", epoch)
+		}
+		return err
+	} else {
+		c.Commitor.Commit(b)
+	}
+
 	return nil
 }
 
 /*********************************** Protocol End***************************************/
+func (c *Core) advanceNextEpoch(epoch int64) {
+	if epoch <= c.Epoch {
+		return
+	}
+
+	//Clear Something
+
+	c.Epoch = epoch
+	block := c.generatorBlock(epoch)
+	proposal, _ := NewSPBProposal(c.Name, block, epoch, 0, SPB_ONE_PHASE, c.SigService)
+	c.Transimtor.Send(c.Name, core.NONE, proposal)
+	c.Transimtor.RecvChannel() <- proposal
+}
+
 func (c *Core) Run() {
+
+	//first proposal
+	block := c.generatorBlock(c.Epoch)
+	proposal, _ := NewSPBProposal(c.Name, block, c.Epoch, 0, SPB_ONE_PHASE, c.SigService)
+	if err := c.Transimtor.Send(c.Name, core.NONE, proposal); err != nil {
+		panic(err)
+	}
+	c.Transimtor.RecvChannel() <- proposal
+
 	recvChannal := c.Transimtor.RecvChannel()
 	for {
 		var err error

@@ -354,15 +354,17 @@ func (*FinVote) MsgType() int {
 type Halt struct {
 	Author    core.NodeID
 	Epoch     int64
+	Round     int64
 	Leader    core.NodeID
 	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewHalt(Author, Leader core.NodeID, BlockHash crypto.Digest, Epoch int64, sigService *crypto.SigService) (*Halt, error) {
+func NewHalt(Author, Leader core.NodeID, BlockHash crypto.Digest, Epoch, Round int64, sigService *crypto.SigService) (*Halt, error) {
 	h := &Halt{
 		Author:    Author,
 		Epoch:     Epoch,
+		Round:     Round,
 		Leader:    Leader,
 		BlockHash: BlockHash,
 	}
