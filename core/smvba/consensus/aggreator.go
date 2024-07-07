@@ -6,16 +6,20 @@ import (
 )
 
 type Aggreator struct {
-	committee       core.Committee
-	finishAggreator map[int64]map[int64]*FinishAggreator
-	doneAggreator   map[int64]map[int64]*DoneAggreator
+	committee        core.Committee
+	finishAggreator  map[int64]map[int64]*FinishAggreator
+	doneAggreator    map[int64]map[int64]*DoneAggreator
+	prevoteAggreator map[int64]map[int64]*PreVoteAggreator
+	finvoteAggreator map[int64]map[int64]*FinVoteAggreator
 }
 
 func NewAggreator(committee core.Committee) *Aggreator {
 	return &Aggreator{
-		committee:       committee,
-		finishAggreator: make(map[int64]map[int64]*FinishAggreator),
-		doneAggreator:   make(map[int64]map[int64]*DoneAggreator),
+		committee:        committee,
+		finishAggreator:  make(map[int64]map[int64]*FinishAggreator),
+		doneAggreator:    make(map[int64]map[int64]*DoneAggreator),
+		prevoteAggreator: make(map[int64]map[int64]*PreVoteAggreator),
+		finvoteAggreator: make(map[int64]map[int64]*FinVoteAggreator),
 	}
 }
 
@@ -34,7 +38,7 @@ func (a *Aggreator) AddFinishVote(finish *Finish) (bool, error) {
 	}
 }
 
-func (a *Aggreator) AddDoneVote(done *Done) (int, error) {
+func (a *Aggreator) AddDoneVote(done *Done) (int8, error) {
 	items, ok := a.doneAggreator[done.Epoch]
 	if !ok {
 		items = make(map[int64]*DoneAggreator)
@@ -46,6 +50,36 @@ func (a *Aggreator) AddDoneVote(done *Done) (int, error) {
 		item = NewDoneAggreator()
 		items[done.Round] = item
 		return item.Append(a.committee, done)
+	}
+}
+
+func (a *Aggreator) AddPreVote(vote *Prevote) (int8, error) {
+	items, ok := a.prevoteAggreator[vote.Epoch]
+	if !ok {
+		items = make(map[int64]*PreVoteAggreator)
+		a.prevoteAggreator[vote.Epoch] = items
+	}
+	if item, ok := items[vote.Round]; ok {
+		return item.Append(a.committee, vote)
+	} else {
+		item = NewPrevoteAggreator()
+		items[vote.Round] = item
+		return item.Append(a.committee, vote)
+	}
+}
+
+func (a *Aggreator) AddFinVote(vote *FinVote) (int8, error) {
+	items, ok := a.finvoteAggreator[vote.Epoch]
+	if !ok {
+		items = make(map[int64]*FinVoteAggreator)
+		a.finvoteAggreator[vote.Epoch] = items
+	}
+	if item, ok := items[vote.Round]; ok {
+		return item.Append(a.committee, vote)
+	} else {
+		item = NewFinVoteAggreator()
+		items[vote.Round] = item
+		return item.Append(a.committee, vote)
 	}
 }
 
@@ -70,6 +104,12 @@ func (f *FinishAggreator) Append(committee core.Committee, finish *Finish) (bool
 	return false, nil
 }
 
+const (
+	DONE_LOW_FLAG int8 = iota
+	DONE_HIGH_FLAG
+	DONE_NONE_FLAG
+)
+
 type DoneAggreator struct {
 	Authors map[core.NodeID]struct{}
 }
@@ -80,18 +120,18 @@ func NewDoneAggreator() *DoneAggreator {
 	}
 }
 
-func (d *DoneAggreator) Append(committee core.Committee, done *Done) (int, error) {
+func (d *DoneAggreator) Append(committee core.Committee, done *Done) (int8, error) {
 	if _, ok := d.Authors[done.Author]; ok {
 		return 0, core.ErrOneMoreMessage(done.MsgType(), done.Epoch, done.Round, done.Author)
 	}
 	d.Authors[done.Author] = struct{}{}
 	if len(d.Authors) == committee.LowThreshold() {
-		return 1, nil
+		return DONE_LOW_FLAG, nil
 	}
 	if len(d.Authors) == committee.HightThreshold() {
-		return 2, nil
+		return DONE_HIGH_FLAG, nil
 	}
-	return 0, nil
+	return DONE_NONE_FLAG, nil
 }
 
 const RANDOM_LEN = 3
@@ -166,11 +206,11 @@ func (p *PreVoteAggreator) Append(committee core.Committee, vote *Prevote) (int8
 		p.yesNums++
 	}
 
-	if p.yesNums > 0 && p.flag == false {
+	if p.yesNums > 0 && !p.flag {
 		p.flag = true
 		return ACTION_YES, nil
 	}
-	if p.noNums == int64(committee.HightThreshold()) && p.flag == false {
+	if p.noNums == int64(committee.HightThreshold()) && !p.flag {
 		return ACTION_NO, nil
 	}
 	return ACTION_NONE, nil

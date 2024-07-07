@@ -271,18 +271,22 @@ func (*ElectShare) MsgType() int {
 
 type Prevote struct {
 	Author    core.NodeID
+	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
 	Flag      int8
+	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewPrevote(Author core.NodeID, Epoch, Round int64, flag int8, sigService *crypto.SigService) (*Prevote, error) {
+func NewPrevote(Author, Leader core.NodeID, Epoch, Round int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*Prevote, error) {
 	prevote := &Prevote{
-		Author: Author,
-		Epoch:  Epoch,
-		Round:  Round,
-		Flag:   flag,
+		Author:    Author,
+		Leader:    Leader,
+		Epoch:     Epoch,
+		Round:     Round,
+		Flag:      flag,
+		BlockHash: BlockHash,
 	}
 	sig, err := sigService.RequestSignature(prevote.Hash())
 	if err != nil {
@@ -300,9 +304,11 @@ func (p *Prevote) Verify(committee core.Committee) bool {
 func (p *Prevote) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(strconv.AppendInt(nil, int64(p.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(p.Leader), 2))
 	hasher.Add(strconv.AppendInt(nil, p.Epoch, 2))
 	hasher.Add(strconv.AppendInt(nil, p.Round, 2))
 	hasher.Add(strconv.AppendInt(nil, int64(p.Flag), 2))
+	hasher.Add(p.BlockHash[:])
 	return hasher.Sum256(nil)
 }
 
@@ -312,18 +318,21 @@ func (*Prevote) MsgType() int {
 
 type FinVote struct {
 	Author    core.NodeID
+	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
 	Flag      int8
+	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewFinVote(Author core.NodeID, Epoch, Round int64, flag int8, sigService *crypto.SigService) (*FinVote, error) {
+func NewFinVote(Author, Leader core.NodeID, Epoch, Round int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*FinVote, error) {
 	prevote := &FinVote{
-		Author: Author,
-		Epoch:  Epoch,
-		Round:  Round,
-		Flag:   flag,
+		Author:    Author,
+		Epoch:     Epoch,
+		Round:     Round,
+		Flag:      flag,
+		BlockHash: BlockHash,
 	}
 	sig, err := sigService.RequestSignature(prevote.Hash())
 	if err != nil {
@@ -341,9 +350,11 @@ func (p *FinVote) Verify(committee core.Committee) bool {
 func (p *FinVote) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(strconv.AppendInt(nil, int64(p.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(p.Leader), 2))
 	hasher.Add(strconv.AppendInt(nil, p.Epoch, 2))
 	hasher.Add(strconv.AppendInt(nil, p.Round, 2))
 	hasher.Add(strconv.AppendInt(nil, int64(p.Flag), 2))
+	hasher.Add(p.BlockHash[:])
 	return hasher.Sum256(nil)
 }
 

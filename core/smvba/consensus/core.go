@@ -234,9 +234,9 @@ func (c *Core) handleDone(d *Done) error {
 
 	if flag, err := c.Aggreator.AddDoneVote(d); err != nil {
 		return err
-	} else if flag == 1 {
+	} else if flag == DONE_LOW_FLAG {
 		return c.invokeDoneAndShare(d.Epoch, d.Round)
-	} else if flag == 2 {
+	} else if flag == DONE_HIGH_FLAG {
 		items, ok := c.ReadyFlags[d.Epoch]
 		if !ok {
 			items = make(map[int64]struct{})
@@ -279,9 +279,13 @@ func (c *Core) processLeader(epoch, round int64) error {
 				//send preVote
 				var preVote *Prevote
 				if spb := c.getSpbInstance(epoch, round, leader); spb.IsLock() {
-					preVote, _ = NewPrevote(c.Name, epoch, round, VOTE_FLAG_YES, c.SigService)
+					if blockHash, ok := spb.GetBlockHash().(crypto.Digest); !ok {
+						panic("block hash is nil")
+					} else {
+						preVote, _ = NewPrevote(c.Name, leader, epoch, round, VOTE_FLAG_YES, blockHash, c.SigService)
+					}
 				} else {
-					preVote, _ = NewPrevote(c.Name, epoch, round, VOTE_FLAG_NO, c.SigService)
+					preVote, _ = NewPrevote(c.Name, leader, epoch, round, VOTE_FLAG_NO, crypto.Digest{}, c.SigService)
 				}
 				c.Transimtor.Send(c.Name, core.NONE, preVote)
 				c.Transimtor.RecvChannel() <- preVote
@@ -300,6 +304,18 @@ func (c *Core) handlePrevote(pv *Prevote) error {
 		return nil
 	}
 
+	if flag, err := c.Aggreator.AddPreVote(pv); err != nil {
+		return err
+	} else if flag == ACTION_NO {
+		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_NO, pv.BlockHash, c.SigService)
+		c.Transimtor.Send(c.Name, core.NONE, vote)
+		c.Transimtor.RecvChannel() <- vote
+	} else if flag == ACTION_YES {
+		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_YES, pv.BlockHash, c.SigService)
+		c.Transimtor.Send(c.Name, core.NONE, vote)
+		c.Transimtor.RecvChannel() <- vote
+	}
+
 	return nil
 }
 
@@ -310,6 +326,43 @@ func (c *Core) handleFinvote(fv *FinVote) error {
 	if c.messgaeFilter(fv.Epoch) {
 		return nil
 	}
+
+	if flag, err := c.Aggreator.AddFinVote(fv); err != nil {
+		return err
+	} else if flag == ACTION_YES {
+		return c.advanceNextRound(fv.Epoch, fv.Round, flag, fv.BlockHash)
+	} else if flag == ACTION_NO {
+		return c.advanceNextRound(fv.Epoch, fv.Round, flag, crypto.Digest{})
+	} else if flag == ACTION_COMMIT {
+		halt, _ := NewHalt(c.Name, fv.Leader, fv.BlockHash, fv.Epoch, fv.Round, c.SigService)
+		c.Transimtor.Send(c.Name, core.NONE, halt)
+		c.Transimtor.RecvChannel() <- halt
+	}
+
+	return nil
+}
+
+func (c *Core) advanceNextRound(epoch, round int64, flag int8, blockHash crypto.Digest) error {
+	//discard message
+	if c.messgaeFilter(epoch) {
+		return nil
+	}
+	if flag == ACTION_NO { //next round block self
+		if inte := c.getSpbInstance(epoch, round, c.Name).GetBlockHash(); inte != nil {
+			blockHash = inte.(crypto.Digest)
+		}
+	}
+
+	var proposal *SPBProposal
+	if block, err := c.getBlock(blockHash); err != nil {
+		return err
+	} else if block != nil {
+		proposal, _ = NewSPBProposal(c.Name, block, epoch, round+1, SPB_ONE_PHASE, c.SigService)
+	} else {
+		proposal, _ = NewSPBProposal(c.Name, c.generatorBlock(epoch), epoch, round+1, SPB_ONE_PHASE, c.SigService)
+	}
+	c.Transimtor.Send(c.Name, core.NONE, proposal)
+	c.Transimtor.RecvChannel() <- proposal
 
 	return nil
 }

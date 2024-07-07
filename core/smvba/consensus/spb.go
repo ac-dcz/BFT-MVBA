@@ -18,8 +18,9 @@ type SPB struct {
 	vm    sync.Mutex
 	Votes map[int8]int
 
-	uvm          sync.Mutex
-	unHandleVote []*SPBVote
+	uvm              sync.Mutex
+	unHandleVote     []*SPBVote
+	unHandleProposal []*SPBProposal
 
 	LockFlag atomic.Bool
 }
@@ -53,13 +54,24 @@ func (s *SPB) processProposal(p *SPBProposal) {
 		}
 
 		s.uvm.Lock()
+		for _, proposal := range s.unHandleProposal {
+			go s.processProposal(proposal)
+		}
 		for _, vote := range s.unHandleVote {
 			go s.processVote(vote)
 		}
+		s.unHandleProposal = nil
 		s.unHandleVote = nil
 		s.uvm.Unlock()
 
 	} else if p.Phase == SPB_TWO_PHASE {
+		if s.BlockHash.Load() == nil {
+			s.uvm.Lock()
+			defer s.uvm.Unlock()
+			s.unHandleProposal = append(s.unHandleProposal, p)
+			return
+		}
+		//if lock ensure SPB_ONE_PHASE has received
 		s.LockFlag.Store(true)
 		if vote, err := NewSPBVote(s.c.Name, p.Author, crypto.Digest{}, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
@@ -114,4 +126,8 @@ func (s *SPB) processVote(p *SPBVote) {
 
 func (s *SPB) IsLock() bool {
 	return s.LockFlag.Load()
+}
+
+func (s *SPB) GetBlockHash() any {
+	return s.BlockHash.Load()
 }
