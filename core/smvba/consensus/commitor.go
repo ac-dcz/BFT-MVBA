@@ -21,6 +21,9 @@ func NewCommittor(callBack chan<- struct{}) *Committor {
 }
 
 func (c *Committor) Commit(block *Block) {
+	if block.Epoch < c.Index {
+		return
+	}
 	c.Blocks[block.Epoch] = block
 	for {
 		if b, ok := c.Blocks[c.Index]; ok {
