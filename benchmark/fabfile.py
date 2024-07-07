@@ -17,7 +17,7 @@ def local(ctx):
         'rate': 3_000,                  # tx send rate
         'batch_size': 200,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
-        'protocol_name': "lightDAG"
+        'protocol': "smvba"
     }
     node_params = {
         "pool": {
@@ -32,7 +32,8 @@ def local(ctx):
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000        # request block period
+            "retry_delay": 5_000,       # request block period
+            'protocol': "smvba"
         }
     }
     try:

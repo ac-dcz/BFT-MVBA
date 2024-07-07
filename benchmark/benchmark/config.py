@@ -79,8 +79,10 @@ class NodeParameters:
             inputs += [json['consensus']['ddos']]
             inputs += [json['consensus']['faults']]
             inputs += [json['consensus']['retry_delay']]
+            inputs += [json['consensus']['protocol']]
             inputs += [json['pool']['tx_size']]
             inputs += [json['pool']['max_queue_size']]
+            
         except KeyError as e:
             raise ConfigError(f'Malformed parameters: missing key {e}')
 
@@ -92,6 +94,23 @@ class NodeParameters:
         self.ddos = json['consensus']['ddos']
         self.faults = int(json['consensus']['faults'])
         self.tx_size = int(json['pool']['tx_size'])
+
+        # MVBA = iota
+        # SMVBA
+        # VABA
+        # PARMVBA
+        protocol = json['consensus']['protocol']
+        if protocol == "mvba":
+            json['consensus']['protocol'] = 0
+        elif protocol == "smvba":
+            json['consensus']['protocol'] = 1
+        elif protocol == "vaba":
+            json['consensus']['protocol'] = 2
+        elif protocol == "parmvba":
+            json['consensus']['protocol'] = 3
+        else:
+            raise ConfigError(f'invaild protocol type: {protocol}')
+        
         self.json = json
 
     def print(self, filename):
@@ -120,7 +139,7 @@ class BenchParameters:
             self.duration = int(json['duration'])
             self.runs = int(json['runs']) if 'runs' in json else 1
             self.node_instance = int(json['node_instance']) if 'node_instance' in json else 1
-            self.protocol = json['protocol_name']
+            self.protocol = json['protocol']
 
         except KeyError as e:
             raise ConfigError(f'Malformed bench parameters: missing key {e}')

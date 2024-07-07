@@ -28,10 +28,10 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        proposals, commits,configs = zip(*results)
+        batchs,proposals, commits,configs = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
-        # self.batchs = self._merge_results([x.items() for x in batchs])
+        self.batchs = self._merge_results([x.items() for x in batchs])
         self.configs = configs[0]
 
     def _merge_results(self, input):
@@ -47,31 +47,44 @@ class LogParser:
         if search(r'panic', log) is not None:
             raise ParseError('Client(s) panicked')
         
-        tmp = findall(r'(.*Z) .* broadcast a new proposal and proof: height=(\d+)', log)
+        tmp = findall(r'\[INFO] (.*) pool.* Received Batch (\d+)', log)
+        batchs = { id:self._to_posix(t) for t,id in tmp}
+        
+        tmp = findall(r'\[INFO] (.*) core.* create Block epoch \d+ node \d+ batch_id (\d+)', log)
         proposals = { id:self._to_posix(t) for t,id in tmp }
 
 
-        tmp = findall(r'(.*Z) .* commit the block: block_index=(\d+) .*', log)
+        tmp = findall(r'\[INFO] (.*) commitor.* commit Block epoch \d+ node \d+ batch_id (\d+)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
         configs = {
             'consensus': {
-                'faults': False,
+                'faults': int(
+                    search(r'Consensus DDos: .*, Faults: (\d+)', log).group(1)
+                ),
             },
             'pool': {
-                'tx_size': 100,
-                'batch_size': 100,
-                'rate':10000,
+                'tx_size': int(
+                    search(r'Transaction pool tx size set to (\d+)', log).group(1)
+                ),
+                'batch_size': int(
+                    search(r'Transaction pool batch size set to (\d+)', log).group(1)
+                ),
+                'rate':int(
+                    search(r'Transaction pool tx rate set to (\d+)', log).group(1)
+                ),
             }
         }
 
-        return proposals, commits,configs
+        return batchs,proposals, commits,configs
 
     def _to_posix(self, string):
         # 解析时间字符串为 datetime 对象
-        x = datetime.fromisoformat(string.replace('Z', '+00:00'))
-        return datetime.timestamp(x)
+        dt = datetime.strptime(string, "%Y/%m/%d %H:%M:%S.%f")
+        # 转换为 Unix 时间戳
+        timestamp = dt.timestamp()
+        return timestamp
 
     def _consensus_throughput(self):
         if not self.commits:
@@ -85,26 +98,26 @@ class LogParser:
         latency = [c - self.proposals[d] for d, c in self.commits.items() if d in self.proposals]
         return mean(latency) if latency else 0
 
-    # def _end_to_end_throughput(self):
-    #     if not self.commits:
-    #         return 0, 0, 0
-    #     start, end = min(self.batchs.values()), max(self.commits.values())
-    #     duration = end - start
-    #     tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
-    #     return tps, duration
+    def _end_to_end_throughput(self):
+        if not self.commits:
+            return 0, 0, 0
+        start, end = min(self.batchs.values()), max(self.commits.values())
+        duration = end - start
+        tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
+        return tps, duration
 
-    # def _end_to_end_latency(self):
-    #     latency = []
-    #     for id,t in self.commits.items():
-    #         if id in self.batchs:
-    #             latency += [t-self.batchs[id]]
-    #     return mean(latency) if latency else 0
+    def _end_to_end_latency(self):
+        latency = []
+        for id,t in self.commits.items():
+            if id in self.batchs:
+                latency += [t-self.batchs[id]]
+        return mean(latency) if latency else 0
 
     def result(self):
         consensus_latency = self._consensus_latency() * 1000
-        consensus_tps, duration = self._consensus_throughput()
-        # end_to_end_tps, duration = self._end_to_end_throughput()
-        # end_to_end_latency = self._end_to_end_latency() * 1000
+        consensus_tps, _ = self._consensus_throughput()
+        end_to_end_tps, duration = self._end_to_end_throughput()
+        end_to_end_latency = self._end_to_end_latency() * 1000
         tx_size = self.configs['pool']['tx_size']
         batch_size = self.configs['pool']['batch_size']
         rate = self.configs['pool']['rate']
@@ -126,6 +139,9 @@ class LogParser:
             ' + RESULTS:\n'
             f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
             f' Consensus latency: {round(consensus_latency):,} ms\n'
+            '\n'
+            f' End-to-end TPS: {round(end_to_end_tps):,} tx/s\n'
+            f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
             '-----------------------------------------\n'
         )
 
@@ -139,7 +155,7 @@ class LogParser:
         assert isinstance(directory, str)
 
         nodes = []
-        for filename in sorted(glob(join(directory, 'node-*.log'))):
+        for filename in sorted(glob(join(directory, 'node-info-*.log'))):
             with open(filename, 'r') as f:
                 nodes += [f.read()]
 
