@@ -3,6 +3,7 @@ package node
 import (
 	"bft/mvba/config"
 	"bft/mvba/core"
+	smvba "bft/mvba/core/smvba/consensus"
 	"bft/mvba/crypto"
 	"bft/mvba/logger"
 	"bft/mvba/pool"
@@ -61,24 +62,16 @@ func NewNode(
 
 	switch coreParameters.Protocol {
 	case core.MVBA:
+		err = smvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	case core.SMVBA:
 	case core.PARMVBA:
 	case core.VABA:
 	}
-	// if err = core.Consensus(
-	// 	core.NodeID(nodeID),
-	// 	commitee,
-	// 	coreParameters,
-	// 	txpool,
-	// 	_store,
-	// 	sigService,
-	// 	commitChannel,
-	// ); err != nil {
-	// 	logger.Error.Println(err)
-	// 	return nil, err
-	// }
 
-	txpool.Run()
+	if err != nil {
+		logger.Error.Println(err)
+		return nil, err
+	}
 	logger.Info.Printf("Node %d successfully booted \n", nodeID)
 
 	return &Node{

@@ -26,6 +26,7 @@ var DefaultParameters = Parameters{
 	DDos:          false,
 	Faults:        0,
 	RetryDelay:    5_000,
+	Protocol:      SMVBA,
 }
 
 type NodeID int
