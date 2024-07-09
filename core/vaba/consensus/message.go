@@ -92,8 +92,10 @@ func (p *Proposal) Hash() crypto.Digest {
 	hasher.Add(strconv.AppendInt(nil, int64(p.Author), 2))
 	hasher.Add(strconv.AppendInt(nil, int64(p.Phase), 2))
 	hasher.Add(strconv.AppendInt(nil, int64(p.Epoch), 2))
-	d := p.B.Hash()
-	hasher.Add(d[:])
+	if p.B != nil {
+		d := p.B.Hash()
+		hasher.Add(d[:])
+	}
 	return hasher.Sum256(nil)
 }
 
@@ -180,6 +182,41 @@ func (d *Done) MsgType() int {
 	return DoneType
 }
 
+type SkipShare struct {
+	Author    core.NodeID
+	Epoch     int64
+	Signature crypto.Signature
+}
+
+func NewSkipShare(Author core.NodeID, Epoch int64, sigService *crypto.SigService) (*SkipShare, error) {
+	skip := &SkipShare{
+		Author: Author,
+		Epoch:  Epoch,
+	}
+	sig, err := sigService.RequestSignature(skip.Hash())
+	if err != nil {
+		return nil, err
+	}
+	skip.Signature = sig
+	return skip, nil
+}
+
+func (s *SkipShare) Verify(committee core.Committee) bool {
+	pub := committee.Name(s.Author)
+	return s.Signature.Verify(pub, s.Hash())
+}
+
+func (s *SkipShare) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, s.Epoch, 2))
+	hasher.Add(strconv.AppendInt(nil, int64(s.Author), 2))
+	return hasher.Sum256(nil)
+}
+
+func (s *SkipShare) MsgType() int {
+	return SkipType
+}
+
 type Skip struct {
 	Author    core.NodeID
 	Epoch     int64
@@ -251,6 +288,7 @@ func (e *ElectShare) MsgType() int {
 
 type ViewChange struct {
 	Author    core.NodeID
+	Leader    core.NodeID
 	Epoch     int64
 	BlockHash *crypto.Digest //may be is nil
 	IsCommit  bool
@@ -259,9 +297,10 @@ type ViewChange struct {
 	Signature crypto.Signature
 }
 
-func NewViewChange(Author core.NodeID, Epoch int64, BlockHash *crypto.Digest, commit, lock, key bool, sigService *crypto.SigService) (*ViewChange, error) {
+func NewViewChange(Author, Leader core.NodeID, Epoch int64, BlockHash *crypto.Digest, commit, lock, key bool, sigService *crypto.SigService) (*ViewChange, error) {
 	v := &ViewChange{
 		Author:    Author,
+		Leader:    Leader,
 		Epoch:     Epoch,
 		BlockHash: BlockHash,
 		IsCommit:  commit,
@@ -294,20 +333,65 @@ func (v *ViewChange) MsgType() int {
 	return ViewChangeType
 }
 
+type Halt struct {
+	Author    core.NodeID
+	Epoch     int64
+	Leader    core.NodeID
+	BlockHash crypto.Digest
+	Signature crypto.Signature
+}
+
+func NewHalt(Author, Leader core.NodeID, BlockHash crypto.Digest, Epoch int64, sigService *crypto.SigService) (*Halt, error) {
+	h := &Halt{
+		Author:    Author,
+		Epoch:     Epoch,
+		Leader:    Leader,
+		BlockHash: BlockHash,
+	}
+	sig, err := sigService.RequestSignature(h.Hash())
+	if err != nil {
+		return nil, err
+	}
+	h.Signature = sig
+	return h, nil
+}
+
+func (h *Halt) Verify(committee core.Committee) bool {
+	pub := committee.Name(h.Author)
+	return h.Signature.Verify(pub, h.Hash())
+}
+
+func (h *Halt) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, int64(h.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, h.Epoch, 2))
+	hasher.Add(strconv.AppendInt(nil, int64(h.Leader), 2))
+	hasher.Add(h.BlockHash[:])
+	return hasher.Sum256(nil)
+}
+
+func (*Halt) MsgType() int {
+	return HaltType
+}
+
 const (
 	ProposalType = iota
 	VoteType
 	DoneType
+	SkipShareType
 	SkipType
 	ElectShareType
 	ViewChangeType
+	HaltType
 )
 
 var DefaultMessageTypeMap = map[int]reflect.Type{
 	ProposalType:   reflect.TypeOf(Proposal{}),
 	VoteType:       reflect.TypeOf(Vote{}),
 	DoneType:       reflect.TypeOf(Done{}),
+	SkipShareType:  reflect.TypeOf(SkipShare{}),
 	SkipType:       reflect.TypeOf(Skip{}),
 	ElectShareType: reflect.TypeOf(ElectShare{}),
 	ViewChangeType: reflect.TypeOf(ViewChange{}),
+	HaltType:       reflect.TypeOf(Halt{}),
 }
