@@ -39,7 +39,7 @@ func (e *Elector) Leader(epoch, round int64) core.NodeID {
 	if node, ok := items[round]; ok {
 		return node
 	} else {
-		return node
+		return core.NONE
 	}
 }
 

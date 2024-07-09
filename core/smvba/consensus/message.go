@@ -98,8 +98,10 @@ func (p *SPBProposal) Hash() crypto.Digest {
 	hasher.Add(strconv.AppendInt(nil, p.Epoch, 2))
 	hasher.Add(strconv.AppendInt(nil, p.Round, 2))
 	hasher.Add(strconv.AppendInt(nil, int64(p.Phase), 2))
-	d := p.B.Hash()
-	hasher.Add(d[:])
+	if p.B != nil {
+		d := p.B.Hash()
+		hasher.Add(d[:])
+	}
 	return hasher.Sum256(nil)
 }
 
