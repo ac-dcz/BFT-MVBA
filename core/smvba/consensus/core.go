@@ -76,9 +76,15 @@ func (c *Core) storeBlock(block *Block) error {
 
 func (c *Core) getBlock(digest crypto.Digest) (*Block, error) {
 	value, err := c.Store.Read(digest[:])
+
+	if err == store.ErrNotFoundKey {
+		return nil, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	b := &Block{}
 	if err := b.Decode(value); err != nil {
 		return nil, err
@@ -343,10 +349,13 @@ func (c *Core) handleFinvote(fv *FinVote) error {
 }
 
 func (c *Core) advanceNextRound(epoch, round int64, flag int8, blockHash crypto.Digest) error {
+	logger.Debug.Printf("Processing next round [epoch %d round %d]\n", epoch, round)
+
 	//discard message
 	if c.messgaeFilter(epoch) {
 		return nil
 	}
+
 	if flag == ACTION_NO { //next round block self
 		if inte := c.getSpbInstance(epoch, round, c.Name).GetBlockHash(); inte != nil {
 			blockHash = inte.(crypto.Digest)
@@ -392,13 +401,11 @@ func (c *Core) handleHalt(h *Halt) error {
 func (c *Core) handleOutput(epoch int64, blockHash crypto.Digest) error {
 	logger.Debug.Printf("Processing Ouput epoch %d \n", epoch)
 	if b, err := c.getBlock(blockHash); err != nil {
-		if err == store.ErrNotFoundKey {
-			// retriever
-			logger.Debug.Printf("Processing retriever epoch %d \n", epoch)
-		}
 		return err
-	} else {
+	} else if b != nil {
 		c.Commitor.Commit(b)
+	} else {
+		logger.Debug.Printf("Processing retriever epoch %d \n", epoch)
 	}
 
 	return nil

@@ -76,9 +76,15 @@ func (c *Core) StoreBlock(block *Block) error {
 
 func (c *Core) GetBlock(hash crypto.Digest) (*Block, error) {
 	data, err := c.Store.Read(hash[:])
+
+	if err == store.ErrNotFoundKey {
+		return nil, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	var block *Block
 	if err := block.Decode(data); err != nil {
 		return nil, err
@@ -132,6 +138,13 @@ func (c *Core) handleProposal(p *Proposal) error {
 	logger.Debug.Printf("processing proposal epoch %d phase %d \n", p.Epoch, p.Phase)
 
 	//Ensure all Block
+	if p.Phase == PHASE_ONE_FALG {
+		if _, ok := c.commitFlag[p.Epoch]; ok {
+			if c.Elector.Leader(p.Epoch) == p.Author {
+				c.Commitor.Commit(p.B)
+			}
+		}
+	}
 
 	if c.messageFilter(p.Epoch) {
 		return nil
@@ -262,18 +275,20 @@ func (c *Core) handleViewChange(v *ViewChange) error {
 	if v.IsCommit {
 		if block, err := c.GetBlock(*v.BlockHash); err == nil {
 			c.Commitor.Commit(block)
-			c.commitFlag[v.Epoch] = struct{}{}
-			halt, _ := NewHalt(c.Name, v.Leader, *v.BlockHash, v.Epoch, c.SigService)
-			c.Transimtor.Send(c.Name, core.NONE, halt)
-			c.advanceNextEpoch(v.Epoch+1, nil)
 		}
+		c.commitFlag[v.Epoch] = struct{}{}
+		halt, _ := NewHalt(c.Name, v.Leader, *v.BlockHash, v.Epoch, c.SigService)
+		c.Transimtor.Send(c.Name, core.NONE, halt)
+		c.advanceNextEpoch(v.Epoch+1, nil)
 	}
-	if v.IsLock {
+	if v.IsLock && v.Epoch >= c.Lock {
 		c.Lock = v.Epoch
 	}
 
-	if c.viewChangeCnts[v.Epoch] == c.Committee.HightThreshold() {
-		c.advanceNextEpoch(v.Epoch+1, v.BlockHash)
+	if _, ok := c.commitFlag[v.Epoch]; !ok { //may be commit
+		if c.viewChangeCnts[v.Epoch] == c.Committee.HightThreshold() { //2f+1?
+			c.advanceNextEpoch(v.Epoch+1, v.BlockHash)
+		}
 	}
 
 	return nil
@@ -291,11 +306,11 @@ func (c *Core) handleHalt(halt *Halt) error {
 
 	if block, err := c.GetBlock(halt.BlockHash); err == nil {
 		c.Commitor.Commit(block)
-		c.commitFlag[halt.Epoch] = struct{}{}
-		halt, _ := NewHalt(c.Name, halt.Leader, halt.BlockHash, halt.Epoch, c.SigService)
-		c.Transimtor.Send(c.Name, core.NONE, halt)
-		c.advanceNextEpoch(halt.Epoch+1, nil)
 	}
+	c.commitFlag[halt.Epoch] = struct{}{}
+	temp, _ := NewHalt(c.Name, halt.Leader, halt.BlockHash, halt.Epoch, c.SigService)
+	c.Transimtor.Send(c.Name, core.NONE, temp)
+	c.advanceNextEpoch(halt.Epoch+1, nil)
 
 	return nil
 }
