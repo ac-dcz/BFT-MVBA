@@ -49,8 +49,11 @@ func (s *SPB) processProposal(p *SPBProposal) {
 		if vote, err := NewSPBVote(s.c.Name, p.Author, blockHash, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
 		} else {
-			s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
-			s.c.Transimtor.RecvChannel() <- vote
+			if s.c.Name != s.Proposer {
+				s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
+			} else {
+				s.c.Transimtor.RecvChannel() <- vote
+			}
 		}
 
 		s.uvm.Lock()
@@ -76,8 +79,11 @@ func (s *SPB) processProposal(p *SPBProposal) {
 		if vote, err := NewSPBVote(s.c.Name, p.Author, crypto.Digest{}, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
 		} else {
-			s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
-			s.c.Transimtor.RecvChannel() <- vote
+			if s.c.Name != s.Proposer {
+				s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
+			} else {
+				s.c.Transimtor.RecvChannel() <- vote
+			}
 		}
 	}
 }

@@ -156,8 +156,8 @@ func (e *ElectAggreator) Append(committee core.Committee, sigService *crypto.Sig
 	e.shares = append(e.shares, elect.SigShare)
 	if len(e.shares) == committee.HightThreshold() {
 		coin, err := crypto.CombineIntactTSPartial(e.shares, sigService.ShareKey, elect.Hash())
-		if err == nil {
-			return core.NONE, nil
+		if err != nil {
+			return core.NONE, err
 		}
 		var rand int
 		for i := 0; i < RANDOM_LEN; i++ {

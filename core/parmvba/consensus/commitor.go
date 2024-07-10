@@ -16,11 +16,12 @@ type Committor struct {
 
 func NewCommittor(callBack chan<- struct{}, store *store.Store) *Committor {
 	c := &Committor{
-		Index:    0,
-		Blocks:   map[int64]*Block{},
-		commitCh: make(chan *Block),
-		callBack: callBack,
-		store:    store,
+		Index:        0,
+		Blocks:       map[int64]*Block{},
+		commitCh:     make(chan *Block),
+		isCommitFlag: make(map[int64]struct{}),
+		callBack:     callBack,
+		store:        store,
 	}
 	go c.run()
 	return c
@@ -37,24 +38,27 @@ func (c *Committor) Commit(block *Block) {
 			var blocks []*Block
 
 			for _, d := range b.Reference {
-				if val, err := c.store.Read(d[:]); err != nil {
+				if val, err := c.store.Read(d[:]); err == nil {
 					temp := &Block{}
-					if err := temp.Decode(val); err != nil {
-						if _, ok := c.isCommitFlag[int64(temp.Batch.ID)]; !ok {
-							c.isCommitFlag[int64(temp.Batch.ID)] = struct{}{}
-							blocks = append(blocks, temp)
+					if err := temp.Decode(val); err == nil {
+						if temp.Batch.Txs != nil {
+							if _, ok := c.isCommitFlag[int64(temp.Batch.ID)]; !ok {
+								c.isCommitFlag[int64(temp.Batch.ID)] = struct{}{}
+								blocks = append(blocks, temp)
+							}
 						}
 					}
 				}
 			}
 
-			c.isCommitFlag[int64(b.Batch.ID)] = struct{}{}
-			blocks = append(blocks, b)
+			if b.Batch.Txs != nil {
+				c.isCommitFlag[int64(b.Batch.ID)] = struct{}{}
+				blocks = append(blocks, b)
+			}
 
 			for _, block := range blocks {
 				c.commitCh <- block
 			}
-
 			delete(c.Blocks, c.Index)
 			c.Index++
 		} else {
