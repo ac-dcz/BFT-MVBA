@@ -80,7 +80,7 @@ class Bench:
 
     def _background_run(self, host, command, log_file):
         name = splitext(basename(log_file))[0]
-        cmd = f'tmux new -d -s "{name}" "{command}"'
+        cmd = f'tmux new -d -s "{name}" "{command} |& tee {log_file}"'
         c = Connection(host, user='root', connect_kwargs=self.connect)
         output = c.run(cmd, hide=True)
         self._check_stderr(output)

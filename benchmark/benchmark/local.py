@@ -23,7 +23,7 @@ class LocalBench:
 
     def _background_run(self, command, log_file):
         name = splitext(basename(log_file))[0]
-        cmd = f'{command}'
+        cmd = f'{command} 2> {log_file}'
         subprocess.run(['tmux', 'new', '-d', '-s', name, cmd], check=True)
 
     def _kill_nodes(self):

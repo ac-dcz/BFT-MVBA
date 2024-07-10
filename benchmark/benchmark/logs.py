@@ -88,7 +88,7 @@ class LogParser:
 
     def _consensus_throughput(self):
         if not self.commits:
-            return 0, 0, 0
+            return 0, 0
         start, end = min(self.proposals.values()), max(self.commits.values())
         duration = end - start
         tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
@@ -100,7 +100,7 @@ class LogParser:
 
     def _end_to_end_throughput(self):
         if not self.commits:
-            return 0, 0, 0
+            return 0, 0
         start, end = min(self.batchs.values()), max(self.commits.values())
         duration = end - start
         tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
