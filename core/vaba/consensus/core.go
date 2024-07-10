@@ -325,12 +325,14 @@ func (c *Core) advanceNextEpoch(epoch int64, blockHash *crypto.Digest) error {
 }
 
 func (c *Core) Run() {
+
 	proposal, _ := NewProposal(c.Name, c.Epoch, PHASE_ONE_FALG, c.generatorBlock(c.Epoch), c.SigService)
 	if err := c.Transimtor.Send(c.Name, core.NONE, proposal); err != nil {
 		panic("first proposal " + err.Error())
 	}
 	c.Transimtor.RecvChannel() <- proposal
 	var recvChannel = c.Transimtor.RecvChannel()
+
 	for {
 		var err error
 		select {
