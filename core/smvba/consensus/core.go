@@ -103,8 +103,11 @@ func (c *Core) getSpbInstance(epoch, round int64, node core.NodeID) *SPB {
 		instances = make(map[core.NodeID]*SPB)
 		rItems[round] = instances
 	}
-	instance := NewSPB(c, epoch, round, node)
-	instances[node] = instance
+	instance, ok := instances[node]
+	if !ok {
+		instance = NewSPB(c, epoch, round, node)
+		instances[node] = instance
+	}
 
 	return instance
 }
@@ -124,6 +127,17 @@ func (c *Core) hasFinish(epoch, round int64, node core.NodeID) (bool, crypto.Dig
 
 func (c *Core) hasReady(epoch, round int64) bool {
 	if items, ok := c.ReadyFlags[epoch]; !ok {
+		c.ReadyFlags[epoch] = make(map[int64]struct{})
+		return false
+	} else {
+		_, ok = items[round]
+		return ok
+	}
+}
+
+func (c *Core) hasDone(epoch, round int64) bool {
+	if items, ok := c.DoneFlags[epoch]; !ok {
+		c.DoneFlags[epoch] = make(map[int64]struct{})
 		return false
 	} else {
 		_, ok = items[round]
@@ -141,7 +155,7 @@ func (c *Core) generatorBlock(epoch int64) *Block {
 
 /*********************************** Protocol Start***************************************/
 func (c *Core) handleSpbProposal(p *SPBProposal) error {
-	logger.Debug.Printf("Processing SPBProposal epoch %d round %d phase %d\n", p.Epoch, p.Round, p.Phase)
+	logger.Debug.Printf("Processing SPBProposal proposer %d epoch %d round %d phase %d\n", p.Author, p.Epoch, p.Round, p.Phase)
 
 	//ensure all block is received
 	if p.Phase == SPB_ONE_PHASE {
@@ -172,7 +186,7 @@ func (c *Core) handleSpbProposal(p *SPBProposal) error {
 }
 
 func (c *Core) handleSpbVote(v *SPBVote) error {
-	logger.Debug.Printf("Processing SPBVote epoch %d round %d phase %d\n", v.Epoch, v.Round, v.Phase)
+	logger.Debug.Printf("Processing SPBVote proposer %d epoch %d round %d phase %d\n", v.Proposer, v.Epoch, v.Round, v.Phase)
 
 	//discard message
 	if c.messgaeFilter(v.Epoch) {
@@ -198,10 +212,12 @@ func (c *Core) handleFinish(f *Finish) error {
 		rF, ok := c.FinishFlags[f.Epoch]
 		if !ok {
 			rF = make(map[int64]map[core.NodeID]crypto.Digest)
+			c.FinishFlags[f.Epoch] = rF
 		}
 		nF, ok := rF[f.Round]
 		if !ok {
 			nF = make(map[core.NodeID]crypto.Digest)
+			rF[f.Round] = nF
 		}
 		nF[f.Author] = f.BlockHash
 	} else {
@@ -212,9 +228,9 @@ func (c *Core) handleFinish(f *Finish) error {
 }
 
 func (c *Core) invokeDoneAndShare(epoch, round int64) error {
-	logger.Debug.Printf("Processing invoke Done and Share epoch %d,roubd %d\n", epoch, round)
+	logger.Debug.Printf("Processing invoke Done and Share epoch %d,round %d\n", epoch, round)
 
-	if _, ok := c.DoneFlags[epoch][round]; !ok {
+	if !c.hasDone(epoch, round) {
 
 		done, _ := NewDone(c.Name, epoch, round, c.SigService)
 		share, _ := NewElectShare(c.Name, epoch, round, c.SigService)
@@ -224,7 +240,12 @@ func (c *Core) invokeDoneAndShare(epoch, round int64) error {
 		c.Transimtor.RecvChannel() <- done
 		c.Transimtor.RecvChannel() <- share
 
-		c.DoneFlags[epoch][round] = struct{}{}
+		items, ok := c.DoneFlags[epoch]
+		if !ok {
+			items = make(map[int64]struct{})
+			c.DoneFlags[epoch] = items
+		}
+		items[round] = struct{}{}
 	}
 
 	return nil
@@ -273,7 +294,7 @@ func (c *Core) handleElectShare(share *ElectShare) error {
 }
 
 func (c *Core) processLeader(epoch, round int64) error {
-
+	logger.Debug.Printf("Processing Leader epoch %d round %d Leader %d\n", epoch, round, c.Elector.Leader(epoch, round))
 	if c.hasReady(epoch, round) {
 		if leader := c.Elector.Leader(epoch, round); leader != core.NONE {
 			if ok, d := c.hasFinish(epoch, round, leader); ok {

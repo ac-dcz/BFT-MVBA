@@ -38,7 +38,9 @@ func (c *Committor) Commit(block *Block) {
 
 func (c *Committor) run() {
 	for block := range c.commitCh {
-		logger.Info.Printf("commit Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+		if block.Batch.Txs != nil {
+			logger.Info.Printf("commit Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+		}
 		c.callBack <- struct{}{}
 	}
 }

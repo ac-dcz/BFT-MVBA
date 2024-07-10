@@ -42,15 +42,17 @@ func (s *SPB) processProposal(p *SPBProposal) {
 		if s.BlockHash.Load() != nil || s.Proposer != p.B.Proposer {
 			return
 		}
-
 		blockHash := p.B.Hash()
 		s.BlockHash.Store(blockHash)
 
 		if vote, err := NewSPBVote(s.c.Name, p.Author, blockHash, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
 		} else {
-			s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
-			s.c.Transimtor.RecvChannel() <- vote
+			if s.c.Name != s.Proposer {
+				s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
+			} else {
+				s.c.Transimtor.RecvChannel() <- vote
+			}
 		}
 
 		s.uvm.Lock()
@@ -76,26 +78,26 @@ func (s *SPB) processProposal(p *SPBProposal) {
 		if vote, err := NewSPBVote(s.c.Name, p.Author, crypto.Digest{}, s.Epoch, s.Round, p.Phase, s.c.SigService); err != nil {
 			logger.Error.Printf("create spb vote message error:%v \n", err)
 		} else {
-			s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
-			s.c.Transimtor.RecvChannel() <- vote
+			if s.c.Name != s.Proposer {
+				s.c.Transimtor.Send(s.c.Name, s.Proposer, vote)
+			} else {
+				s.c.Transimtor.RecvChannel() <- vote
+			}
 		}
 	}
 }
 
 func (s *SPB) processVote(p *SPBVote) {
-
 	if s.BlockHash.Load() == nil {
 		s.uvm.Lock()
 		s.unHandleVote = append(s.unHandleVote, p)
 		s.uvm.Unlock()
 		return
 	}
-
 	s.vm.Lock()
 	s.Votes[p.Phase]++
 	num := s.Votes[p.Phase]
 	s.vm.Unlock()
-
 	// 2f+1?
 	if num == s.c.Committee.HightThreshold() {
 		if p.Phase == SPB_ONE_PHASE {
