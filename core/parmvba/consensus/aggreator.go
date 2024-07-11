@@ -8,18 +8,18 @@ import (
 type Aggreator struct {
 	committee        core.Committee
 	finishAggreator  map[int64]map[int64]*FinishAggreator
-	doneAggreator    map[int64]map[int64]*DoneAggreator
-	prevoteAggreator map[int64]map[int64]*PreVoteAggreator
-	finvoteAggreator map[int64]map[int64]*FinVoteAggreator
+	doneAggreator    map[int64]map[int64]map[int64]*DoneAggreator
+	prevoteAggreator map[int64]map[int64]map[int64]*PreVoteAggreator
+	finvoteAggreator map[int64]map[int64]map[int64]*FinVoteAggreator
 }
 
 func NewAggreator(committee core.Committee) *Aggreator {
 	return &Aggreator{
 		committee:        committee,
 		finishAggreator:  make(map[int64]map[int64]*FinishAggreator),
-		doneAggreator:    make(map[int64]map[int64]*DoneAggreator),
-		prevoteAggreator: make(map[int64]map[int64]*PreVoteAggreator),
-		finvoteAggreator: make(map[int64]map[int64]*FinVoteAggreator),
+		doneAggreator:    make(map[int64]map[int64]map[int64]*DoneAggreator),
+		prevoteAggreator: make(map[int64]map[int64]map[int64]*PreVoteAggreator),
+		finvoteAggreator: make(map[int64]map[int64]map[int64]*FinVoteAggreator),
 	}
 }
 
@@ -41,45 +41,66 @@ func (a *Aggreator) AddFinishVote(finish *Finish) (bool, error) {
 func (a *Aggreator) AddDoneVote(done *Done) (int8, error) {
 	items, ok := a.doneAggreator[done.Epoch]
 	if !ok {
-		items = make(map[int64]*DoneAggreator)
+		items = make(map[int64]map[int64]*DoneAggreator)
 		a.doneAggreator[done.Epoch] = items
 	}
-	if item, ok := items[done.Round]; ok {
-		return item.Append(a.committee, done)
-	} else {
-		item = NewDoneAggreator()
+	item, ok := items[done.Round]
+	if !ok {
+		item = make(map[int64]*DoneAggreator)
 		items[done.Round] = item
-		return item.Append(a.committee, done)
+	}
+
+	instance, ok := item[done.Try]
+	if !ok {
+		instance = NewDoneAggreator()
+		item[done.Try] = instance
+		return instance.Append(a.committee, done)
+	} else {
+		return instance.Append(a.committee, done)
 	}
 }
 
 func (a *Aggreator) AddPreVote(vote *Prevote) (int8, error) {
 	items, ok := a.prevoteAggreator[vote.Epoch]
 	if !ok {
-		items = make(map[int64]*PreVoteAggreator)
+		items = make(map[int64]map[int64]*PreVoteAggreator)
 		a.prevoteAggreator[vote.Epoch] = items
 	}
-	if item, ok := items[vote.Round]; ok {
-		return item.Append(a.committee, vote)
-	} else {
-		item = NewPrevoteAggreator()
+	item, ok := items[vote.Round]
+	if !ok {
+		item = make(map[int64]*PreVoteAggreator)
 		items[vote.Round] = item
-		return item.Append(a.committee, vote)
+	}
+
+	instance, ok := item[vote.Try]
+	if !ok {
+		instance = NewPrevoteAggreator()
+		item[vote.Try] = instance
+		return instance.Append(a.committee, vote)
+	} else {
+		return instance.Append(a.committee, vote)
 	}
 }
 
 func (a *Aggreator) AddFinVote(vote *FinVote) (int8, error) {
 	items, ok := a.finvoteAggreator[vote.Epoch]
 	if !ok {
-		items = make(map[int64]*FinVoteAggreator)
+		items = make(map[int64]map[int64]*FinVoteAggreator)
 		a.finvoteAggreator[vote.Epoch] = items
 	}
-	if item, ok := items[vote.Round]; ok {
-		return item.Append(a.committee, vote)
-	} else {
-		item = NewFinVoteAggreator()
+	item, ok := items[vote.Round]
+	if !ok {
+		item = make(map[int64]*FinVoteAggreator)
 		items[vote.Round] = item
-		return item.Append(a.committee, vote)
+	}
+
+	instance, ok := item[vote.Try]
+	if !ok {
+		instance = NewFinVoteAggreator()
+		item[vote.Try] = instance
+		return instance.Append(a.committee, vote)
+	} else {
+		return instance.Append(a.committee, vote)
 	}
 }
 

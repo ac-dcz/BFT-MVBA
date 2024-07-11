@@ -22,8 +22,8 @@ type Core struct {
 
 	FinishFlags  map[int64]map[int64]map[core.NodeID]crypto.Digest // finish? map[epoch][round][node] = blockHash
 	SPbInstances map[int64]map[int64]map[core.NodeID]*SPB          // map[epoch][node][round]
-	DoneFlags    map[int64]map[int64]struct{}
-	ReadyFlags   map[int64]map[int64]struct{}
+	DoneFlags    map[int64]map[int64]map[int64]struct{}
+	ReadyFlags   map[int64]map[int64]map[int64]struct{}
 	HaltFlags    map[int64]struct{}
 	Epoch        int64
 }
@@ -53,8 +53,8 @@ func NewCore(
 		Commitor:     NewCommittor(callBack, Store),
 		FinishFlags:  make(map[int64]map[int64]map[core.NodeID]crypto.Digest),
 		SPbInstances: make(map[int64]map[int64]map[core.NodeID]*SPB),
-		DoneFlags:    make(map[int64]map[int64]struct{}),
-		ReadyFlags:   make(map[int64]map[int64]struct{}),
+		DoneFlags:    make(map[int64]map[int64]map[int64]struct{}),
+		ReadyFlags:   make(map[int64]map[int64]map[int64]struct{}),
 		HaltFlags:    make(map[int64]struct{}),
 	}
 
@@ -125,22 +125,31 @@ func (c *Core) hasFinish(epoch, round int64, node core.NodeID) (bool, crypto.Dig
 	}
 }
 
-func (c *Core) hasReady(epoch, round int64) bool {
+func (c *Core) hasReady(epoch, round, try int64) bool {
 	if items, ok := c.ReadyFlags[epoch]; !ok {
+		c.ReadyFlags[epoch] = make(map[int64]map[int64]struct{})
 		return false
 	} else {
-		_, ok = items[round]
-		return ok
+		if item, ok := items[round]; !ok {
+			return false
+		} else {
+			_, ok = item[try]
+			return ok
+		}
 	}
 }
 
-func (c *Core) hasDone(epoch, round int64) bool {
+func (c *Core) hasDone(epoch, round, try int64) bool {
 	if items, ok := c.DoneFlags[epoch]; !ok {
-		c.DoneFlags[epoch] = make(map[int64]struct{})
+		c.DoneFlags[epoch] = make(map[int64]map[int64]struct{})
 		return false
 	} else {
-		_, ok = items[round]
-		return ok
+		if item, ok := items[round]; !ok {
+			return ok
+		} else {
+			_, ok = item[try]
+			return ok
+		}
 	}
 }
 
@@ -230,19 +239,19 @@ func (c *Core) handleFinish(f *Finish) error {
 		}
 		nF[f.Author] = f.BlockHash
 	} else {
-		return c.invokeDoneAndShare(f.Epoch, f.Round)
+		return c.invokeDoneAndShare(f.Epoch, f.Round, 0)
 	}
 
 	return nil
 }
 
-func (c *Core) invokeDoneAndShare(epoch, round int64) error {
+func (c *Core) invokeDoneAndShare(epoch, round, try int64) error {
 	logger.Debug.Printf("Processing invoke Done and Share epoch %d,round %d\n", epoch, round)
 
-	if !c.hasDone(epoch, round) {
+	if !c.hasDone(epoch, round, try) {
 
-		done, _ := NewDone(c.Name, epoch, round, c.SigService)
-		share, _ := NewElectShare(c.Name, epoch, round, c.SigService)
+		done, _ := NewDone(c.Name, epoch, round, try, c.SigService)
+		share, _ := NewElectShare(c.Name, epoch, round, try, c.SigService)
 
 		c.Transimtor.Send(c.Name, core.NONE, done)
 		c.Transimtor.Send(c.Name, core.NONE, share)
@@ -251,10 +260,15 @@ func (c *Core) invokeDoneAndShare(epoch, round int64) error {
 
 		items, ok := c.DoneFlags[epoch]
 		if !ok {
-			items = make(map[int64]struct{})
+			items = make(map[int64]map[int64]struct{})
 			c.DoneFlags[epoch] = items
 		}
-		items[round] = struct{}{}
+		item, ok := items[round]
+		if !ok {
+			item = make(map[int64]struct{})
+			items[round] = item
+		}
+		item[try] = struct{}{}
 	}
 
 	return nil
@@ -271,15 +285,19 @@ func (c *Core) handleDone(d *Done) error {
 	if flag, err := c.Aggreator.AddDoneVote(d); err != nil {
 		return err
 	} else if flag == DONE_LOW_FLAG {
-		return c.invokeDoneAndShare(d.Epoch, d.Round)
+		return c.invokeDoneAndShare(d.Epoch, d.Round, d.Try)
 	} else if flag == DONE_HIGH_FLAG {
 		items, ok := c.ReadyFlags[d.Epoch]
 		if !ok {
-			items = make(map[int64]struct{})
+			items = make(map[int64]map[int64]struct{})
 			c.ReadyFlags[d.Epoch] = items
 		}
-		items[d.Round] = struct{}{}
-		return c.processLeader(d.Epoch, d.Round)
+		item, ok := items[d.Round]
+		if !ok {
+			item = make(map[int64]struct{})
+			items[d.Round] = item
+		}
+		item[d.Try] = struct{}{}
 	}
 
 	return nil
@@ -296,15 +314,15 @@ func (c *Core) handleElectShare(share *ElectShare) error {
 	if leader, err := c.Elector.AddShareVote(share); err != nil {
 		return err
 	} else if leader != core.NONE {
-		c.processLeader(share.Epoch, share.Round)
+		c.processLeader(share.Epoch, share.Round, share.Try)
 	}
 
 	return nil
 }
 
-func (c *Core) processLeader(epoch, round int64) error {
+func (c *Core) processLeader(epoch, round, try int64) error {
 
-	if c.hasReady(epoch, round) {
+	if c.hasReady(epoch, round, try) {
 		if leader := c.Elector.Leader(epoch, round); leader != core.NONE {
 			if ok, d := c.hasFinish(epoch, round, leader); ok {
 				//send halt
@@ -318,10 +336,10 @@ func (c *Core) processLeader(epoch, round int64) error {
 					if blockHash, ok := spb.GetBlockHash().(crypto.Digest); !ok {
 						panic("block hash is nil")
 					} else {
-						preVote, _ = NewPrevote(c.Name, leader, epoch, round, VOTE_FLAG_YES, blockHash, c.SigService)
+						preVote, _ = NewPrevote(c.Name, leader, epoch, try, round, VOTE_FLAG_YES, blockHash, c.SigService)
 					}
 				} else {
-					preVote, _ = NewPrevote(c.Name, leader, epoch, round, VOTE_FLAG_NO, crypto.Digest{}, c.SigService)
+					preVote, _ = NewPrevote(c.Name, leader, epoch, round, try, VOTE_FLAG_NO, crypto.Digest{}, c.SigService)
 				}
 				c.Transimtor.Send(c.Name, core.NONE, preVote)
 				c.Transimtor.RecvChannel() <- preVote
@@ -343,11 +361,11 @@ func (c *Core) handlePrevote(pv *Prevote) error {
 	if flag, err := c.Aggreator.AddPreVote(pv); err != nil {
 		return err
 	} else if flag == ACTION_NO {
-		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_NO, pv.BlockHash, c.SigService)
+		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, pv.Try, VOTE_FLAG_NO, pv.BlockHash, c.SigService)
 		c.Transimtor.Send(c.Name, core.NONE, vote)
 		c.Transimtor.RecvChannel() <- vote
 	} else if flag == ACTION_YES {
-		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_YES, pv.BlockHash, c.SigService)
+		vote, _ := NewFinVote(c.Name, pv.Leader, pv.Epoch, pv.Round, pv.Try, VOTE_FLAG_YES, pv.BlockHash, c.SigService)
 		c.Transimtor.Send(c.Name, core.NONE, vote)
 		c.Transimtor.RecvChannel() <- vote
 	}
@@ -368,7 +386,7 @@ func (c *Core) handleFinvote(fv *FinVote) error {
 	} else if flag == ACTION_YES {
 		return c.advanceNextRound(fv.Epoch, fv.Round, flag, fv.BlockHash)
 	} else if flag == ACTION_NO {
-		return c.advanceNextRound(fv.Epoch, fv.Round, flag, crypto.Digest{})
+		return c.invokeDoneAndShare(fv.Epoch, fv.Round, fv.Try+1)
 	} else if flag == ACTION_COMMIT {
 		halt, _ := NewHalt(c.Name, fv.Leader, fv.BlockHash, fv.Epoch, fv.Round, c.SigService)
 		c.Transimtor.Send(c.Name, core.NONE, halt)

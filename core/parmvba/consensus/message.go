@@ -202,14 +202,16 @@ type Done struct {
 	Author    core.NodeID
 	Epoch     int64
 	Round     int64
+	Try       int64
 	Signature crypto.Signature
 }
 
-func NewDone(Author core.NodeID, epoch, round int64, sigService *crypto.SigService) (*Done, error) {
+func NewDone(Author core.NodeID, epoch, round, try int64, sigService *crypto.SigService) (*Done, error) {
 	done := &Done{
 		Author: Author,
 		Epoch:  epoch,
 		Round:  round,
+		Try:    try,
 	}
 	sig, err := sigService.RequestSignature(done.Hash())
 	if err != nil {
@@ -229,6 +231,7 @@ func (d *Done) Hash() crypto.Digest {
 	hasher.Add(strconv.AppendInt(nil, int64(d.Author), 2))
 	hasher.Add(strconv.AppendInt(nil, d.Epoch, 2))
 	hasher.Add(strconv.AppendInt(nil, d.Round, 2))
+	hasher.Add(strconv.AppendInt(nil, d.Try, 2))
 	return hasher.Sum256(nil)
 }
 
@@ -240,14 +243,16 @@ type ElectShare struct {
 	Author   core.NodeID
 	Epoch    int64
 	Round    int64
+	Try      int64
 	SigShare crypto.SignatureShare
 }
 
-func NewElectShare(Author core.NodeID, epoch, round int64, sigService *crypto.SigService) (*ElectShare, error) {
+func NewElectShare(Author core.NodeID, epoch, round, try int64, sigService *crypto.SigService) (*ElectShare, error) {
 	elect := &ElectShare{
 		Author: Author,
 		Epoch:  epoch,
 		Round:  round,
+		Try:    try,
 	}
 	sig, err := sigService.RequestTsSugnature(elect.Hash())
 	if err != nil {
@@ -266,6 +271,7 @@ func (e *ElectShare) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(strconv.AppendInt(nil, e.Epoch, 2))
 	hasher.Add(strconv.AppendInt(nil, e.Round, 2))
+	hasher.Add(strconv.AppendInt(nil, e.Try, 2))
 	return hasher.Sum256(nil)
 }
 
@@ -278,17 +284,19 @@ type Prevote struct {
 	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
+	Try       int64
 	Flag      int8
 	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewPrevote(Author, Leader core.NodeID, Epoch, Round int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*Prevote, error) {
+func NewPrevote(Author, Leader core.NodeID, Epoch, Round, try int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*Prevote, error) {
 	prevote := &Prevote{
 		Author:    Author,
 		Leader:    Leader,
 		Epoch:     Epoch,
 		Round:     Round,
+		Try:       try,
 		Flag:      flag,
 		BlockHash: BlockHash,
 	}
@@ -325,17 +333,19 @@ type FinVote struct {
 	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
+	Try       int64
 	Flag      int8
 	BlockHash crypto.Digest
 	Signature crypto.Signature
 }
 
-func NewFinVote(Author, Leader core.NodeID, Epoch, Round int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*FinVote, error) {
+func NewFinVote(Author, Leader core.NodeID, Epoch, Round, try int64, flag int8, BlockHash crypto.Digest, sigService *crypto.SigService) (*FinVote, error) {
 	prevote := &FinVote{
 		Author:    Author,
 		Epoch:     Epoch,
 		Round:     Round,
 		Flag:      flag,
+		Try:       try,
 		BlockHash: BlockHash,
 	}
 	sig, err := sigService.RequestSignature(prevote.Hash())
