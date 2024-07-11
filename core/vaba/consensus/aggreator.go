@@ -29,7 +29,7 @@ func (a *Aggreator) addSkipVote(share *SkipShare) (bool, error) {
 	item, ok := a.skipAggreator[share.Epoch]
 	if !ok {
 		item = newNormalAggreator()
-		a.doneAggreator[share.Epoch] = item
+		a.skipAggreator[share.Epoch] = item
 	}
 	return item.Append(share.Author, a.committee, share.MsgType(), share.Epoch)
 }

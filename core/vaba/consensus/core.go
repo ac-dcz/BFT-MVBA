@@ -57,6 +57,7 @@ func NewCore(
 		Elector:        NewElector(SigService, Committee),
 		PBInstances:    make(map[int64]map[core.NodeID]*Promote),
 		SkipFlag:       make(map[int64]struct{}),
+		electFlag:      make(map[int64]struct{}),
 		viewChangeFlag: make(map[int64]struct{}),
 		viewChangeCnts: make(map[int64]int),
 		commitFlag:     make(map[int64]struct{}),
@@ -78,15 +79,18 @@ func (c *Core) GetBlock(hash crypto.Digest) (*Block, error) {
 	data, err := c.Store.Read(hash[:])
 
 	if err == store.ErrNotFoundKey {
+		logger.Error.Println("not key")
 		return nil, nil
 	}
 
 	if err != nil {
+		logger.Error.Println("error")
 		return nil, err
 	}
 
-	var block *Block
+	block := &Block{}
 	if err := block.Decode(data); err != nil {
+		logger.Error.Println("decode error")
 		return nil, err
 	}
 	return block, nil
@@ -135,7 +139,7 @@ func (c *Core) generatorBlock(epoch int64) *Block {
 /*******************************Protocol***********************************/
 
 func (c *Core) handleProposal(p *Proposal) error {
-	logger.Debug.Printf("processing proposal epoch %d phase %d \n", p.Epoch, p.Phase)
+	logger.Debug.Printf("processing proposal epoch %d phase %d proposer %d\n", p.Epoch, p.Phase, p.Author)
 
 	//Ensure all Block
 	if p.Phase == PHASE_ONE_FALG {
@@ -164,7 +168,7 @@ func (c *Core) handleProposal(p *Proposal) error {
 }
 
 func (c *Core) handleVote(v *Vote) error {
-	logger.Debug.Printf("processing vote epoch %d phase %d \n", v.Epoch, v.Phase)
+	logger.Debug.Printf("processing vote epoch %d phase %d proposer %d\n", v.Epoch, v.Phase, v.Proposer)
 	if c.messageFilter(v.Epoch) {
 		return nil
 	}
@@ -224,6 +228,7 @@ func (c *Core) handleSkip(s *Skip) error {
 }
 
 func (c *Core) invokeElect(epoch int64) error {
+	logger.Debug.Printf("Processing invoke elect epoch %d \n", epoch)
 	if _, ok := c.electFlag[epoch]; !ok {
 		c.electFlag[epoch] = struct{}{}
 		elect, _ := NewElectShare(c.Name, epoch, c.SigService)
@@ -234,7 +239,7 @@ func (c *Core) invokeElect(epoch int64) error {
 }
 
 func (c *Core) handleElectShare(e *ElectShare) error {
-	logger.Debug.Printf("processing electShare epoch\n", e.Epoch)
+	logger.Debug.Printf("processing electShare epoch %d\n", e.Epoch)
 	if c.messageFilter(e.Epoch) {
 		return nil
 	}
@@ -249,6 +254,7 @@ func (c *Core) handleElectShare(e *ElectShare) error {
 }
 
 func (c *Core) invokeViewChange(epoch int64, leader core.NodeID) error {
+	logger.Debug.Println("processing invoke view change epoch", epoch, "Leader", leader)
 	if _, ok := c.viewChangeFlag[epoch]; !ok {
 		c.viewChangeFlag[epoch] = struct{}{}
 		if c.Elector.Leader(epoch) == core.NONE {
@@ -273,7 +279,8 @@ func (c *Core) handleViewChange(v *ViewChange) error {
 
 	c.viewChangeCnts[v.Epoch]++
 	if v.IsCommit {
-		if block, err := c.GetBlock(*v.BlockHash); err == nil {
+		if block, err := c.GetBlock(*v.BlockHash); err == nil && block != nil {
+			block.Epoch = v.Epoch
 			c.Commitor.Commit(block)
 		}
 		c.commitFlag[v.Epoch] = struct{}{}
@@ -287,6 +294,8 @@ func (c *Core) handleViewChange(v *ViewChange) error {
 
 	if _, ok := c.commitFlag[v.Epoch]; !ok { //may be commit
 		if c.viewChangeCnts[v.Epoch] == c.Committee.HightThreshold() { //2f+1?
+			c.commitFlag[v.Epoch] = struct{}{}
+			c.Commitor.Commit(&Block{Epoch: v.Epoch, Batch: pool.Batch{}})
 			c.advanceNextEpoch(v.Epoch+1, v.BlockHash)
 		}
 	}
@@ -304,7 +313,8 @@ func (c *Core) handleHalt(halt *Halt) error {
 		return nil
 	}
 
-	if block, err := c.GetBlock(halt.BlockHash); err == nil {
+	if block, err := c.GetBlock(halt.BlockHash); err == nil && block != nil {
+		block.Epoch = halt.Epoch
 		c.Commitor.Commit(block)
 	}
 	c.commitFlag[halt.Epoch] = struct{}{}
@@ -317,6 +327,7 @@ func (c *Core) handleHalt(halt *Halt) error {
 
 /*******************************Protocol***********************************/
 func (c *Core) advanceNextEpoch(epoch int64, blockHash *crypto.Digest) error {
+	logger.Debug.Println("advance next epoch ", epoch)
 	if epoch <= c.Epoch {
 		return nil
 	}

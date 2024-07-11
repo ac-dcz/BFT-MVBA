@@ -214,7 +214,7 @@ func (s *SkipShare) Hash() crypto.Digest {
 }
 
 func (s *SkipShare) MsgType() int {
-	return SkipType
+	return SkipShareType
 }
 
 type Skip struct {

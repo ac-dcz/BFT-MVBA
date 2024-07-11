@@ -107,9 +107,11 @@ func (p *Promote) processProposal(proposal *Proposal) {
 			vote, _ = NewVote(p.C.Name, p.Proposer, *p.blockHash, p.Epoch, PHASE_FOUR_FALG, p.C.SigService)
 		}
 	}
-
-	p.C.Transimtor.Send(p.C.Name, p.Proposer, vote)
-	p.C.Transimtor.RecvChannel() <- vote
+	if p.C.Name != p.Proposer {
+		p.C.Transimtor.Send(p.C.Name, p.Proposer, vote)
+	} else {
+		p.C.Transimtor.RecvChannel() <- vote
+	}
 
 }
 
@@ -135,20 +137,19 @@ func (p *Promote) processVote(vote *Vote) {
 	nums := p.voteCnts[vote.Phase]
 	p.mVoteCnt.Unlock()
 
-	if vote.Phase < PHASE_FOUR_FALG {
-		if nums == p.C.Committee.HightThreshold() {
+	if nums == p.C.Committee.HightThreshold() {
+		if vote.Phase < PHASE_FOUR_FALG {
 			proposal, _ := NewProposal(p.Proposer, p.Epoch, vote.Phase+1, nil, p.C.SigService)
 			p.C.Transimtor.Send(p.Proposer, core.NONE, proposal)
 			p.C.Transimtor.RecvChannel() <- proposal
-		}
-	} else {
-		if !p.C.isSkip(p.Epoch) {
-			done, _ := NewDone(p.Proposer, p.Epoch, p.C.SigService)
-			p.C.Transimtor.Send(p.Proposer, core.NONE, done)
-			p.C.Transimtor.RecvChannel() <- done
+		} else {
+			if !p.C.isSkip(p.Epoch) {
+				done, _ := NewDone(p.Proposer, p.Epoch, p.C.SigService)
+				p.C.Transimtor.Send(p.Proposer, core.NONE, done)
+				p.C.Transimtor.RecvChannel() <- done
+			}
 		}
 	}
-
 }
 
 func (p *Promote) BlockHash() *crypto.Digest {

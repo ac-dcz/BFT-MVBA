@@ -13,7 +13,7 @@ func NewCommittor(callBack chan<- struct{}) *Committor {
 	c := &Committor{
 		Index:    0,
 		Blocks:   map[int64]*Block{},
-		commitCh: make(chan *Block),
+		commitCh: make(chan *Block, 100),
 		callBack: callBack,
 	}
 	go c.run()
@@ -21,6 +21,7 @@ func NewCommittor(callBack chan<- struct{}) *Committor {
 }
 
 func (c *Committor) Commit(block *Block) {
+	logger.Warn.Println("Commit epoch ", block.Epoch)
 	if block.Epoch < c.Index {
 		return
 	}
@@ -38,7 +39,9 @@ func (c *Committor) Commit(block *Block) {
 
 func (c *Committor) run() {
 	for block := range c.commitCh {
-		logger.Info.Printf("commit Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+		if block.Batch.Txs != nil {
+			logger.Info.Printf("commit Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+		}
 		c.callBack <- struct{}{}
 	}
 }
