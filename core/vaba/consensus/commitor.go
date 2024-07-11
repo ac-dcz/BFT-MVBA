@@ -21,7 +21,6 @@ func NewCommittor(callBack chan<- struct{}) *Committor {
 }
 
 func (c *Committor) Commit(block *Block) {
-	logger.Warn.Println("Commit epoch ", block.Epoch)
 	if block.Epoch < c.Index {
 		return
 	}

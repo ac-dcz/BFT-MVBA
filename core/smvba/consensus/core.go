@@ -206,9 +206,9 @@ func (c *Core) handleFinish(f *Finish) error {
 	if c.messgaeFilter(f.Epoch) {
 		return nil
 	}
-	if ok, err := c.Aggreator.AddFinishVote(f); err != nil {
+	if flag, err := c.Aggreator.AddFinishVote(f); err != nil {
 		return err
-	} else if !ok {
+	} else {
 		rF, ok := c.FinishFlags[f.Epoch]
 		if !ok {
 			rF = make(map[int64]map[core.NodeID]crypto.Digest)
@@ -220,8 +220,9 @@ func (c *Core) handleFinish(f *Finish) error {
 			rF[f.Round] = nF
 		}
 		nF[f.Author] = f.BlockHash
-	} else {
-		return c.invokeDoneAndShare(f.Epoch, f.Round)
+		if flag {
+			return c.invokeDoneAndShare(f.Epoch, f.Round)
+		}
 	}
 
 	return nil
@@ -437,7 +438,7 @@ func (c *Core) advanceNextEpoch(epoch int64) {
 	if epoch <= c.Epoch {
 		return
 	}
-
+	logger.Debug.Println("advance next epoch", epoch)
 	//Clear Something
 
 	c.Epoch = epoch

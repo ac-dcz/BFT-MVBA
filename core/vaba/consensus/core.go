@@ -79,18 +79,15 @@ func (c *Core) GetBlock(hash crypto.Digest) (*Block, error) {
 	data, err := c.Store.Read(hash[:])
 
 	if err == store.ErrNotFoundKey {
-		logger.Error.Println("not key")
 		return nil, nil
 	}
 
 	if err != nil {
-		logger.Error.Println("error")
 		return nil, err
 	}
 
 	block := &Block{}
 	if err := block.Decode(data); err != nil {
-		logger.Error.Println("decode error")
 		return nil, err
 	}
 	return block, nil
