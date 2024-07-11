@@ -98,7 +98,36 @@ Parsing logs...
 - PAR-MVBA
 
 ```
+Starting local benchmark
+Setting up testbed...
+Running parmvba
+0 byzantine nodes
+tx_size 250 byte, batch_size 500, rate 5000 tx/s
+DDOS attack False
+Waiting for the nodes to synchronize...
+Running benchmark (30 sec)...
+Parsing logs...
 
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Protocol: parmvba 
+ DDOS attack: False 
+ Committee size: 4 nodes
+ Input rate: 5,000 tx/s
+ Transaction size: 250 B
+ Batch size: 500 tx/Batch
+ Faults: 0 nodes
+ Execution time: 30 s
+
+ + RESULTS:
+ Consensus TPS: 15,780 tx/s
+ Consensus latency: 121 ms
+
+ End-to-end TPS: 15,748 tx/s
+ End-to-end latency: 156 ms
+-----------------------------------------
 ```
 
 ## Next Steps
