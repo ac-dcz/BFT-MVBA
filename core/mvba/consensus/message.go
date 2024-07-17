@@ -11,6 +11,11 @@ import (
 	"strconv"
 )
 
+const (
+	FLAG_YES uint8 = 0
+	FLAG_NO  uint8 = 1
+)
+
 type Validator interface {
 	Verify(core.Committee) bool
 }
@@ -231,7 +236,6 @@ func (e *ElectShare) Verify(committee core.Committee) bool {
 
 func (e *ElectShare) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
-	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(e.Author)))
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(e.Epoch)))
 	return hasher.Sum256(nil)
 }
@@ -289,12 +293,78 @@ type ABAVal struct {
 	Signature crypto.Signature
 }
 
+func NewABAVal(Author, Leader core.NodeID, Epoch int64, Flag uint8, sigService *crypto.SigService) (*ABAVal, error) {
+	val := &ABAVal{
+		Author: Author,
+		Leader: Leader,
+		Epoch:  Epoch,
+		Flag:   Flag,
+	}
+	sig, err := sigService.RequestSignature(val.Hash())
+	if err != nil {
+		return nil, err
+	}
+	val.Signature = sig
+	return val, nil
+}
+
+func (v *ABAVal) Verify(committee core.Committee) bool {
+	pub := committee.Name(v.Author)
+	return v.Signature.Verify(pub, v.Hash())
+}
+
+func (v *ABAVal) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Author)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Leader)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Epoch)))
+	hasher.Add([]byte{v.Flag})
+	return hasher.Sum256(nil)
+}
+
+func (v *ABAVal) MsgType() int {
+	return ABAValType
+}
+
 type ABAMux struct {
 	Author    core.NodeID
 	Leader    core.NodeID
 	Epoch     int64
 	Flag      uint8
 	Signature crypto.Signature
+}
+
+func NewABAMux(Author, Leader core.NodeID, Epoch int64, Flag uint8, sigService *crypto.SigService) (*ABAMux, error) {
+	val := &ABAMux{
+		Author: Author,
+		Leader: Leader,
+		Epoch:  Epoch,
+		Flag:   Flag,
+	}
+	sig, err := sigService.RequestSignature(val.Hash())
+	if err != nil {
+		return nil, err
+	}
+	val.Signature = sig
+	return val, nil
+}
+
+func (v *ABAMux) Verify(committee core.Committee) bool {
+	pub := committee.Name(v.Author)
+	return v.Signature.Verify(pub, v.Hash())
+}
+
+func (v *ABAMux) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Author)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Leader)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Epoch)))
+	hasher.Add([]byte{v.Flag})
+	return hasher.Sum256(nil)
+}
+
+func (v *ABAMux) MsgType() int {
+	return ABAMuxType
 }
 
 type CoinShare struct {
@@ -304,12 +374,75 @@ type CoinShare struct {
 	Share  crypto.SignatureShare
 }
 
+func NewCoinShare(Author, Leader core.NodeID, Epoch int64, sigService *crypto.SigService) (*CoinShare, error) {
+	coin := &CoinShare{
+		Author: Author,
+		Leader: Leader,
+		Epoch:  Epoch,
+	}
+	sig, err := sigService.RequestTsSugnature(coin.Hash())
+	if err != nil {
+		return nil, err
+	}
+	coin.Share = sig
+	return coin, nil
+}
+
+func (c *CoinShare) Verify(committee core.Committee) bool {
+	_ = committee.Name(c.Author)
+	return c.Share.Verify(c.Hash())
+}
+
+func (c *CoinShare) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Leader)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Epoch)))
+	return hasher.Sum256(nil)
+}
+
+func (c *CoinShare) MsgType() int {
+	return CoinShareType
+}
+
 type ABAHalt struct {
 	Author    core.NodeID
 	Leader    core.NodeID
 	Epoch     int64
 	Flag      uint8
 	Signature crypto.Signature
+}
+
+func NewABAHalt(Author, Leader core.NodeID, Epoch int64, Flag uint8, sigService *crypto.SigService) (*ABAHalt, error) {
+	h := &ABAHalt{
+		Author: Author,
+		Leader: Leader,
+		Epoch:  Epoch,
+		Flag:   Flag,
+	}
+	sig, err := sigService.RequestSignature(h.Hash())
+	if err != nil {
+		return nil, err
+	}
+	h.Signature = sig
+	return h, nil
+}
+
+func (h *ABAHalt) Verify(committee core.Committee) bool {
+	pub := committee.Name(h.Author)
+	return h.Signature.Verify(pub, h.Hash())
+}
+
+func (h *ABAHalt) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Author)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Leader)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Epoch)))
+	hasher.Add([]byte{h.Flag})
+	return hasher.Sum256(nil)
+}
+
+func (h *ABAHalt) MsgType() int {
+	return ABAHaltType
 }
 
 const (
