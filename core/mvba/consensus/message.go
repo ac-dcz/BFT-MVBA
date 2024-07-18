@@ -16,6 +16,11 @@ const (
 	FLAG_NO  uint8 = 1
 )
 
+const (
+	DATA_CBC   uint8 = 0
+	COMMIT_CBC uint8 = 1
+)
+
 type Validator interface {
 	Verify(core.Committee) bool
 }
@@ -137,17 +142,17 @@ func (c *Commitment) MsgType() int {
 type Ready struct {
 	Author    core.NodeID
 	Proposer  core.NodeID
-	BlockHash crypto.Digest
 	Epoch     int64
+	Tag       uint8
 	Signature crypto.Signature
 }
 
-func NewReady(Author, Proposer core.NodeID, blockHash crypto.Digest, Epoch int64, sigService *crypto.SigService) (*Ready, error) {
+func NewReady(Author, Proposer core.NodeID, Epoch int64, tag uint8, sigService *crypto.SigService) (*Ready, error) {
 	ready := &Ready{
-		Author:    Author,
-		Proposer:  Proposer,
-		BlockHash: blockHash,
-		Epoch:     Epoch,
+		Author:   Author,
+		Proposer: Proposer,
+		Epoch:    Epoch,
+		Tag:      tag,
 	}
 	sig, err := sigService.RequestSignature(ready.Hash())
 	if err != nil {
@@ -167,7 +172,7 @@ func (r *Ready) Hash() crypto.Digest {
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(r.Author)))
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(r.Proposer)))
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(r.Epoch)))
-	hasher.Add(r.BlockHash[:])
+	hasher.Add([]byte{r.Tag})
 	return hasher.Sum256(nil)
 }
 
@@ -178,13 +183,15 @@ func (r *Ready) MsgType() int {
 type Final struct {
 	Author    core.NodeID
 	Epoch     int64
+	Tag       uint8
 	Signature crypto.Signature
 }
 
-func NewFinal(Author core.NodeID, Epoch int64, sigService *crypto.SigService) (*Final, error) {
+func NewFinal(Author core.NodeID, Epoch int64, Tag uint8, sigService *crypto.SigService) (*Final, error) {
 	f := &Final{
 		Author: Author,
 		Epoch:  Epoch,
+		Tag:    Tag,
 	}
 	sig, err := sigService.RequestSignature(f.Hash())
 	if err != nil {
@@ -203,6 +210,7 @@ func (f *Final) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(f.Author)))
 	hasher.Add(binary.LittleEndian.AppendUint64(nil, uint64(f.Epoch)))
+	hasher.Add([]byte{f.Tag})
 	return hasher.Sum256(nil)
 }
 
