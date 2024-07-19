@@ -9,15 +9,20 @@ import (
 )
 
 type Core struct {
-	Name       core.NodeID
-	Committee  core.Committee
-	Parameters core.Parameters
-	SigService *crypto.SigService
-	Store      *store.Store
-	TxPool     *pool.Pool
-	Transimtor *core.Transmitor
-	CallBack   chan struct{}
-	Epoch      int64
+	Name           core.NodeID
+	Committee      core.Committee
+	Parameters     core.Parameters
+	SigService     *crypto.SigService
+	Store          *store.Store
+	TxPool         *pool.Pool
+	Transimtor     *core.Transmitor
+	CallBack       chan struct{}
+	Epoch          int64
+	cbcCallBack    chan *CBCBack
+	cbcInstances   map[int64]map[core.NodeID]map[uint8]*CBC
+	cbcFinalCnts   map[int64]map[uint8]int
+	cbcFinalIndexs map[int64][]bool
+	commitments    map[int64]map[core.NodeID][]bool
 }
 
 func NewCore(
@@ -28,22 +33,110 @@ func NewCore(
 	Store *store.Store,
 	TxPool *pool.Pool,
 	Transimtor *core.Transmitor,
+	CallBack chan struct{},
 ) *Core {
 	core := &Core{
-		Name:       name,
-		Committee:  committee,
-		Parameters: parameters,
-		SigService: SigService,
-		Store:      Store,
-		TxPool:     TxPool,
-		Transimtor: Transimtor,
+		Name:           name,
+		Committee:      committee,
+		Parameters:     parameters,
+		SigService:     SigService,
+		Store:          Store,
+		TxPool:         TxPool,
+		Transimtor:     Transimtor,
+		CallBack:       CallBack,
+		Epoch:          0,
+		cbcCallBack:    make(chan *CBCBack, 1000),
+		cbcInstances:   make(map[int64]map[core.NodeID]map[uint8]*CBC),
+		cbcFinalCnts:   make(map[int64]map[uint8]int),
+		cbcFinalIndexs: make(map[int64][]bool),
+		commitments:    make(map[int64]map[core.NodeID][]bool),
 	}
 
 	return core
 }
 
+func (c *Core) storeBlock(block *Block) error {
+	key := block.Hash()
+	val, err := block.Encode()
+	if err != nil {
+		return err
+	}
+	if err := c.Store.Write(key[:], val); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Core) getCBCInstance(epoch int64, node core.NodeID, tag uint8) *CBC {
+	items, ok := c.cbcInstances[epoch]
+	if !ok {
+		items = make(map[core.NodeID]map[uint8]*CBC)
+		c.cbcInstances[epoch] = items
+	}
+	item, ok := items[node]
+	if !ok {
+		item = make(map[uint8]*CBC)
+		items[node] = item
+	}
+	instance, ok := item[tag]
+	if !ok {
+		instance = NewCBC(c, node, epoch, c.cbcCallBack)
+		item[tag] = instance
+	}
+	return instance
+}
+
+func (c *Core) addFinals(epoch int64, tag uint8, node core.NodeID) int {
+	items, ok := c.cbcFinalCnts[epoch]
+	if !ok {
+		items = make(map[uint8]int)
+		c.cbcFinalCnts[epoch] = items
+		c.cbcFinalIndexs[epoch] = make([]bool, c.Committee.Size())
+	}
+	if tag == DATA_CBC {
+		c.cbcFinalIndexs[epoch][node] = true
+	}
+	items[tag]++
+	cnt := items[tag]
+	return cnt
+}
+
+func (c *Core) getCommitment(epoch int64) []bool {
+	return c.cbcFinalIndexs[epoch]
+}
+
+func (c *Core) addCommitment(epoch int64, node core.NodeID, commitment []bool) {
+	items, ok := c.commitments[epoch]
+	if !ok {
+		items = make(map[core.NodeID][]bool)
+		c.commitments[epoch] = items
+	}
+	items[node] = commitment
+}
+
+func (c *Core) checkVote(vote *Vote) bool {
+	if vote.Flag == FLAG_NO {
+		if items, ok := c.commitments[vote.Epoch]; ok {
+			if item, ok := items[vote.Author]; ok {
+				if item != nil && item[vote.Leader] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (c *Core) messageFilter(epoch int64) bool {
 	return c.Epoch > epoch
+}
+
+func (c *Core) generateBlock(epoch int64) *Block {
+	block := NewBlock(c.Name, c.TxPool.GetBatch(), epoch)
+	if block.Batch.Txs != nil {
+		logger.Info.Printf("create Block epoch %d node %d batch_id %d \n", block.Epoch, block.Proposer, block.Batch.ID)
+	}
+	return block
 }
 
 /**************************** Protocol ********************************/
@@ -54,6 +147,12 @@ func (c *Core) handleProposal(p *Proposal) error {
 		return nil
 	}
 
+	if err := c.storeBlock(p.B); err != nil {
+		return err
+	}
+
+	go c.getCBCInstance(p.Epoch, p.Author, DATA_CBC).ProcessProposal(p)
+
 	return nil
 }
 
@@ -62,7 +161,7 @@ func (c *Core) handleReady(r *Ready) error {
 	if c.messageFilter(r.Epoch) {
 		return nil
 	}
-
+	go c.getCBCInstance(r.Epoch, r.Author, r.Tag).ProcessReady(r)
 	return nil
 }
 
@@ -71,7 +170,7 @@ func (c *Core) handleFinal(f *Final) error {
 	if c.messageFilter(f.Epoch) {
 		return nil
 	}
-
+	go c.getCBCInstance(f.Epoch, f.Author, f.Tag).ProcessFinal(f)
 	return nil
 }
 
@@ -80,6 +179,37 @@ func (c *Core) handleCommitment(commit *Commitment) error {
 	if c.messageFilter(commit.Epoch) {
 		return nil
 	}
+	go c.getCBCInstance(commit.Epoch, commit.Author, COMMIT_CBC).ProcessCommitment(commit)
+
+	return nil
+}
+
+func (c *Core) processCBCBack(back *CBCBack) error {
+	logger.Debug.Printf("Processing cbc back tag %d proposer %d epoch %d \n", back.Tag, back.Author, back.Epoch)
+	if c.messageFilter(back.Epoch) {
+		return nil
+	}
+	cnt := c.addFinals(back.Epoch, back.Tag, back.Author)
+	if back.Tag == COMMIT_CBC {
+		c.addCommitment(back.Epoch, back.Author, back.Commitment)
+	}
+
+	//wait 2f+1
+	if cnt == c.Committee.HightThreshold() {
+		if back.Tag == DATA_CBC {
+			commitment := c.getCommitment(back.Epoch)
+			msg, _ := NewCommitment(c.Name, commitment, back.Epoch, c.SigService)
+			c.Transimtor.Send(c.Name, core.NONE, msg)
+			c.Transimtor.RecvChannel() <- msg
+		} else if back.Tag == COMMIT_CBC {
+			return c.invokeElectShare(back.Epoch)
+		}
+	}
+	return nil
+}
+
+func (c *Core) invokeElectShare(epoch int64) error {
+
 	return nil
 }
 
@@ -177,11 +307,11 @@ func (c *Core) Run() {
 				}
 
 			}
-		default:
+		case cbcBack := <-c.cbcCallBack:
+			err = c.processCBCBack(cbcBack)
 		}
 		if err != nil {
 			logger.Warn.Println(err)
 		}
 	}
-
 }

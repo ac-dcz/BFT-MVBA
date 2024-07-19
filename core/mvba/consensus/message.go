@@ -16,11 +16,6 @@ const (
 	FLAG_NO  uint8 = 1
 )
 
-const (
-	DATA_CBC   uint8 = 0
-	COMMIT_CBC uint8 = 1
-)
-
 type Validator interface {
 	Verify(core.Committee) bool
 }
