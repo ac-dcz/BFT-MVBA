@@ -6,6 +6,7 @@ import (
 	"bft/mvba/logger"
 	"bft/mvba/pool"
 	"bft/mvba/store"
+	"fmt"
 )
 
 type Core struct {
@@ -16,13 +17,16 @@ type Core struct {
 	Store          *store.Store
 	TxPool         *pool.Pool
 	Transimtor     *core.Transmitor
+	Elector        *Elector
+	Aggreator      *Aggreator
 	CallBack       chan struct{}
 	Epoch          int64
 	cbcCallBack    chan *CBCBack
-	cbcInstances   map[int64]map[core.NodeID]map[uint8]*CBC
-	cbcFinalCnts   map[int64]map[uint8]int
-	cbcFinalIndexs map[int64][]bool
-	commitments    map[int64]map[core.NodeID][]bool
+	cbcInstances   map[int64]map[core.NodeID]map[uint8]*CBC //epoch-node-tag
+	cbcFinalCnts   map[int64]map[uint8]int                  //epoch-tag finish-cbc cnts
+	cbcFinalIndexs map[int64][]bool                         //epoch self-commitment
+	commitments    map[int64]map[core.NodeID][]bool         //epoch-node commitment
+	abaInstances   map[int64]map[int64]*ABA
 }
 
 func NewCore(
@@ -44,6 +48,8 @@ func NewCore(
 		TxPool:         TxPool,
 		Transimtor:     Transimtor,
 		CallBack:       CallBack,
+		Elector:        NewElector(committee, SigService),
+		Aggreator:      NewAggreator(committee),
 		Epoch:          0,
 		cbcCallBack:    make(chan *CBCBack, 1000),
 		cbcInstances:   make(map[int64]map[core.NodeID]map[uint8]*CBC),
@@ -86,6 +92,20 @@ func (c *Core) getCBCInstance(epoch int64, node core.NodeID, tag uint8) *CBC {
 	return instance
 }
 
+func (c *Core) getABAInstance(epoch, round int64) *ABA {
+	items, ok := c.abaInstances[epoch]
+	if !ok {
+		items = make(map[int64]*ABA)
+		c.abaInstances[epoch] = items
+	}
+	instance, ok := items[round]
+	if !ok {
+		instance = NewABA(c, epoch, round)
+		items[round] = instance
+	}
+	return instance
+}
+
 func (c *Core) addFinals(epoch int64, tag uint8, node core.NodeID) int {
 	items, ok := c.cbcFinalCnts[epoch]
 	if !ok {
@@ -93,16 +113,23 @@ func (c *Core) addFinals(epoch int64, tag uint8, node core.NodeID) int {
 		c.cbcFinalCnts[epoch] = items
 		c.cbcFinalIndexs[epoch] = make([]bool, c.Committee.Size())
 	}
+
+	//record commitment
 	if tag == DATA_CBC {
 		c.cbcFinalIndexs[epoch][node] = true
 	}
+
 	items[tag]++
 	cnt := items[tag]
 	return cnt
 }
 
-func (c *Core) getCommitment(epoch int64) []bool {
-	return c.cbcFinalIndexs[epoch]
+func (c *Core) getCommitment(epoch int64, node core.NodeID) []bool {
+	items, ok := c.commitments[epoch]
+	if !ok {
+		return nil
+	}
+	return items[node]
 }
 
 func (c *Core) addCommitment(epoch int64, node core.NodeID, commitment []bool) {
@@ -197,19 +224,16 @@ func (c *Core) processCBCBack(back *CBCBack) error {
 	//wait 2f+1
 	if cnt == c.Committee.HightThreshold() {
 		if back.Tag == DATA_CBC {
-			commitment := c.getCommitment(back.Epoch)
+			commitment := c.cbcFinalIndexs[back.Epoch]
 			msg, _ := NewCommitment(c.Name, commitment, back.Epoch, c.SigService)
 			c.Transimtor.Send(c.Name, core.NONE, msg)
 			c.Transimtor.RecvChannel() <- msg
 		} else if back.Tag == COMMIT_CBC {
-			return c.invokeElectShare(back.Epoch)
+			elect, _ := NewElectShare(c.Name, back.Epoch, c.SigService)
+			c.Transimtor.Send(c.Name, core.NONE, elect)
+			c.Transimtor.RecvChannel() <- elect
 		}
 	}
-	return nil
-}
-
-func (c *Core) invokeElectShare(epoch int64) error {
-
 	return nil
 }
 
@@ -218,14 +242,51 @@ func (c *Core) handleElectShare(elect *ElectShare) error {
 	if c.messageFilter(elect.Epoch) {
 		return nil
 	}
+	if flag, err := c.Elector.addElectShare(elect); err != nil {
+		return err
+	} else if flag {
+		return c.invokeStageTwo(c.Epoch, 0)
+	}
 
 	return nil
 }
 
+func (c *Core) invokeStageTwo(epoch, round int64) error {
+	leader := c.Elector.Leader(epoch, round)
+	logger.Debug.Printf("Invoke Stage Two epoch %d round %d leader %d\n", epoch, round, leader)
+
+	commitment := c.cbcFinalIndexs[epoch]
+	var vote *Vote
+	if commitment == nil || !commitment[leader] {
+		vote, _ = NewVote(c.Name, leader, epoch, round, FLAG_NO, c.SigService)
+	} else {
+		vote, _ = NewVote(c.Name, leader, epoch, round, FLAG_YES, c.SigService)
+	}
+	c.Transimtor.Send(c.Name, core.NONE, vote)
+	c.Transimtor.RecvChannel() <- vote
+	return nil
+}
+
 func (c *Core) handleVote(vote *Vote) error {
-	logger.Debug.Printf("Processing vote epoch %d val %d\n", vote.Epoch, vote.Flag)
+	logger.Debug.Printf("Processing vote epoch %d round %d leader %d val %d\n", vote.Epoch, vote.Round, vote.Leader, vote.Flag)
 	if c.messageFilter(vote.Epoch) {
 		return nil
+	}
+	if c.checkVote(vote) {
+		return fmt.Errorf("vote check error epoch %d round %d author %d leader %d", vote.Epoch, vote.Round, vote.Author, vote.Leader)
+	}
+
+	if flag, err := c.Aggreator.addVote(vote); err != nil {
+		return err
+	} else if flag != ACTION_NO {
+		var abaVal *ABAVal
+		if flag == ACTION_ONE {
+			abaVal, _ = NewABAVal(c.Name, vote.Leader, vote.Epoch, vote.Round, FLAG_YES, c.SigService)
+		} else if flag == ACTION_TWO {
+			abaVal, _ = NewABAVal(c.Name, vote.Leader, vote.Epoch, vote.Round, FLAG_NO, c.SigService)
+		}
+		c.Transimtor.Send(c.Name, core.NONE, abaVal)
+		c.Transimtor.RecvChannel() <- abaVal
 	}
 
 	return nil
@@ -270,6 +331,13 @@ func (c *Core) handleABAHalt(halt *ABAHalt) error {
 /**************************** Protocol ********************************/
 
 func (c *Core) Run() {
+	block := c.generateBlock(c.Epoch)
+	proposal, err := NewProposal(c.Name, block, c.Epoch, c.SigService)
+	if err != nil {
+		panic(err)
+	}
+	c.Transimtor.Send(c.Name, core.NONE, proposal)
+	c.Transimtor.RecvChannel() <- proposal
 
 	recvChan := c.Transimtor.RecvChannel()
 	for {
