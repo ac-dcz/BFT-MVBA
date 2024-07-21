@@ -3,6 +3,7 @@ package node
 import (
 	"bft/mvba/config"
 	"bft/mvba/core"
+	mvba "bft/mvba/core/mvba/consensus"
 	parmvba "bft/mvba/core/parmvba/consensus"
 	smvba "bft/mvba/core/smvba/consensus"
 	vaba "bft/mvba/core/vaba/consensus"
@@ -64,7 +65,7 @@ func NewNode(
 
 	switch coreParameters.Protocol {
 	case core.MVBA:
-		panic("invaild protocol")
+		err = mvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	case core.SMVBA:
 		err = smvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	case core.PARMVBA:
