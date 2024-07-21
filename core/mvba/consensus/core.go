@@ -20,7 +20,6 @@ type Core struct {
 	Commitor       *Commitor
 	Elector        *Elector
 	Aggreator      *Aggreator
-	CallBack       chan struct{}
 	Epoch          int64
 	cbcCallBack    chan *CBCBack
 	cbcInstances   map[int64]map[core.NodeID]map[uint8]*CBC //epoch-node-tag
@@ -40,7 +39,7 @@ func NewCore(
 	Store *store.Store,
 	TxPool *pool.Pool,
 	Transimtor *core.Transmitor,
-	CallBack chan struct{},
+	CallBack chan<- struct{},
 ) *Core {
 	core := &Core{
 		Name:           name,
@@ -50,7 +49,6 @@ func NewCore(
 		Store:          Store,
 		TxPool:         TxPool,
 		Transimtor:     Transimtor,
-		CallBack:       CallBack,
 		Commitor:       NewCommitor(CallBack),
 		Elector:        NewElector(committee, SigService),
 		Aggreator:      NewAggreator(committee, SigService),
@@ -198,6 +196,10 @@ func (c *Core) handleProposal(p *Proposal) error {
 	logger.Debug.Printf("Processing proposal proposer %d epoch %d\n", p.Author, p.Epoch)
 	if c.messageFilter(p.Epoch) {
 		return nil
+	}
+
+	if c.Commitor.CommitLeader(p.Epoch) == p.Author {
+		c.Commitor.Commit(p.Epoch, p.Author, p.B)
 	}
 
 	if err := c.storeBlock(p.B); err != nil {

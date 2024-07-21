@@ -6,14 +6,14 @@ import (
 )
 
 type Commitor struct {
-	callBack      chan struct{}
+	callBack      chan<- struct{}
 	commitLeaders map[int64]core.NodeID
 	commitBlocks  map[int64]*Block
 	blockChan     chan *Block
 	curIndex      int64
 }
 
-func NewCommitor(callBack chan struct{}) *Commitor {
+func NewCommitor(callBack chan<- struct{}) *Commitor {
 	c := &Commitor{
 		callBack:      callBack,
 		commitLeaders: make(map[int64]core.NodeID),
@@ -32,6 +32,14 @@ func NewCommitor(callBack chan struct{}) *Commitor {
 	}()
 
 	return c
+}
+
+func (c *Commitor) CommitLeader(epoch int64) core.NodeID {
+	leader, ok := c.commitLeaders[epoch]
+	if !ok {
+		return core.NONE
+	}
+	return leader
 }
 
 func (c *Commitor) Commit(epoch int64, leader core.NodeID, block *Block) {
