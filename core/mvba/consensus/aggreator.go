@@ -28,7 +28,7 @@ func (a *Aggreator) addVote(vote *Vote) (uint8, error) {
 	items, ok := a.votes[vote.Epoch]
 	if !ok {
 		items = make(map[int64]*VoteAggreator)
-		a.votes[vote.Round] = items
+		a.votes[vote.Epoch] = items
 	}
 	item, ok := items[vote.Round]
 	if !ok {
@@ -42,10 +42,14 @@ func (a *Aggreator) addCoinShare(coinShare *CoinShare) (bool, uint8, error) {
 	items, ok := a.coins[coinShare.Epoch]
 	if !ok {
 		items = make(map[int64]map[int64]*CoinAggreator)
-		items[coinShare.Round] = make(map[int64]*CoinAggreator)
 		a.coins[coinShare.Epoch] = items
 	}
-	instance, ok := items[coinShare.Round][coinShare.InRound]
+	item, ok := items[coinShare.Round]
+	if !ok {
+		item = make(map[int64]*CoinAggreator)
+		items[coinShare.Round] = item
+	}
+	instance, ok := item[coinShare.InRound]
 	if !ok {
 		instance = NewCoinAggreator()
 		items[coinShare.Round][coinShare.InRound] = instance

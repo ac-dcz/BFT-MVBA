@@ -216,7 +216,7 @@ func (c *Core) handleReady(r *Ready) error {
 	if c.messageFilter(r.Epoch) {
 		return nil
 	}
-	go c.getCBCInstance(r.Epoch, r.Author, r.Tag).ProcessReady(r)
+	go c.getCBCInstance(r.Epoch, r.Proposer, r.Tag).ProcessReady(r)
 	return nil
 }
 
@@ -325,11 +325,19 @@ func (c *Core) invokeABAVal(leader core.NodeID, epoch, round, inRound int64, fla
 	flags, ok := c.abaInvokeFlag[epoch]
 	if !ok {
 		flags = make(map[int64]map[int64]map[uint8]struct{})
-		flags[round] = make(map[int64]map[uint8]struct{})
-		flags[round][inRound] = make(map[uint8]struct{})
 		c.abaInvokeFlag[epoch] = flags
 	}
-	flags[round][inRound][flag] = struct{}{}
+	items, ok := flags[round]
+	if !ok {
+		items = make(map[int64]map[uint8]struct{})
+		flags[round] = items
+	}
+	item, ok := items[inRound]
+	if !ok {
+		item = make(map[uint8]struct{})
+		items[inRound] = item
+	}
+	item[flag] = struct{}{}
 	abaVal, _ := NewABAVal(c.Name, leader, epoch, round, inRound, flag, c.SigService)
 	c.Transimtor.Send(c.Name, core.NONE, abaVal)
 	c.Transimtor.RecvChannel() <- abaVal
@@ -338,7 +346,7 @@ func (c *Core) invokeABAVal(leader core.NodeID, epoch, round, inRound int64, fla
 }
 
 func (c *Core) handleABAVal(val *ABAVal) error {
-	logger.Debug.Printf("Processing aba val leader %d epoch %d round %d val %d\n", val.Leader, val.Epoch, val.Round, val.Flag)
+	logger.Debug.Printf("Processing aba val leader %d epoch %d round %d in-round val %d\n", val.Leader, val.Epoch, val.Round, val.InRound, val.Flag)
 	if c.messageFilter(val.Epoch) {
 		return nil
 	}
@@ -349,7 +357,7 @@ func (c *Core) handleABAVal(val *ABAVal) error {
 }
 
 func (c *Core) handleABAMux(mux *ABAMux) error {
-	logger.Debug.Printf("Processing aba mux leader %d epoch %d round %d val %d\n", mux.Leader, mux.Epoch, mux.Round, mux.Flag)
+	logger.Debug.Printf("Processing aba mux leader %d epoch %d round %d in-round %d val %d\n", mux.Leader, mux.Epoch, mux.Round, mux.InRound, mux.Flag)
 	if c.messageFilter(mux.Epoch) {
 		return nil
 	}
@@ -360,7 +368,7 @@ func (c *Core) handleABAMux(mux *ABAMux) error {
 }
 
 func (c *Core) handleCoinShare(share *CoinShare) error {
-	logger.Debug.Printf("Processing coin share epoch %d round %d", share.Epoch, share.Round)
+	logger.Debug.Printf("Processing coin share epoch %d round %d in-round %d", share.Epoch, share.Round, share.InRound)
 	if c.messageFilter(share.Epoch) {
 		return nil
 	}
@@ -376,7 +384,7 @@ func (c *Core) handleCoinShare(share *CoinShare) error {
 }
 
 func (c *Core) handleABAHalt(halt *ABAHalt) error {
-	logger.Debug.Printf("Processing aba halt leader %d epoch %d\n", halt.Leader, halt.Epoch)
+	logger.Debug.Printf("Processing aba halt leader %d epoch %d in-round %d\n", halt.Leader, halt.Epoch, halt.InRound)
 	if c.messageFilter(halt.Epoch) {
 		return nil
 	}

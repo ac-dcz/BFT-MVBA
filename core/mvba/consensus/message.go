@@ -414,6 +414,7 @@ func (c *CoinShare) Hash() crypto.Digest {
 	hasher := crypto.NewHasher()
 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Leader)))
 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Epoch)))
+	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.InRound)))
 	return hasher.Sum256(nil)
 }
 
