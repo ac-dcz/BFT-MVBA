@@ -17,6 +17,7 @@ type Core struct {
 	Store          *store.Store
 	TxPool         *pool.Pool
 	Transimtor     *core.Transmitor
+	Commitor       *Commitor
 	Elector        *Elector
 	Aggreator      *Aggreator
 	CallBack       chan struct{}
@@ -27,6 +28,8 @@ type Core struct {
 	cbcFinalIndexs map[int64][]bool                         //epoch self-commitment
 	commitments    map[int64]map[core.NodeID][]bool         //epoch-node commitment
 	abaInstances   map[int64]map[int64]*ABA
+	abaInvokeFlag  map[int64]map[int64]map[int64]map[uint8]struct{} //aba invoke flag
+	abaCallBack    chan *ABABack
 }
 
 func NewCore(
@@ -48,14 +51,18 @@ func NewCore(
 		TxPool:         TxPool,
 		Transimtor:     Transimtor,
 		CallBack:       CallBack,
+		Commitor:       NewCommitor(CallBack),
 		Elector:        NewElector(committee, SigService),
-		Aggreator:      NewAggreator(committee),
+		Aggreator:      NewAggreator(committee, SigService),
 		Epoch:          0,
 		cbcCallBack:    make(chan *CBCBack, 1000),
 		cbcInstances:   make(map[int64]map[core.NodeID]map[uint8]*CBC),
 		cbcFinalCnts:   make(map[int64]map[uint8]int),
 		cbcFinalIndexs: make(map[int64][]bool),
 		commitments:    make(map[int64]map[core.NodeID][]bool),
+		abaInstances:   make(map[int64]map[int64]*ABA),
+		abaInvokeFlag:  make(map[int64]map[int64]map[int64]map[uint8]struct{}),
+		abaCallBack:    make(chan *ABABack, 1000),
 	}
 
 	return core
@@ -71,6 +78,16 @@ func (c *Core) storeBlock(block *Block) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Core) getBlock(digest crypto.Digest) (*Block, error) {
+	data, err := c.Store.Read(digest[:])
+	if err != nil {
+		return nil, err
+	}
+	block := &Block{}
+	err = block.Decode(data)
+	return block, err
 }
 
 func (c *Core) getCBCInstance(epoch int64, node core.NodeID, tag uint8) *CBC {
@@ -100,10 +117,27 @@ func (c *Core) getABAInstance(epoch, round int64) *ABA {
 	}
 	instance, ok := items[round]
 	if !ok {
-		instance = NewABA(c, epoch, round)
+		instance = NewABA(c, epoch, round, c.abaCallBack)
 		items[round] = instance
 	}
 	return instance
+}
+
+func (c *Core) isInvokeABA(epoch, round, inRound int64, tag uint8) bool {
+	flags, ok := c.abaInvokeFlag[epoch]
+	if !ok {
+		return false
+	}
+	flag, ok := flags[round]
+	if !ok {
+		return false
+	}
+	item, ok := flag[inRound]
+	if !ok {
+		return false
+	}
+	_, ok = item[tag]
+	return ok
 }
 
 func (c *Core) addFinals(epoch int64, tag uint8, node core.NodeID) int {
@@ -122,14 +156,6 @@ func (c *Core) addFinals(epoch int64, tag uint8, node core.NodeID) int {
 	items[tag]++
 	cnt := items[tag]
 	return cnt
-}
-
-func (c *Core) getCommitment(epoch int64, node core.NodeID) []bool {
-	items, ok := c.commitments[epoch]
-	if !ok {
-		return nil
-	}
-	return items[node]
 }
 
 func (c *Core) addCommitment(epoch int64, node core.NodeID, commitment []bool) {
@@ -279,41 +305,69 @@ func (c *Core) handleVote(vote *Vote) error {
 	if flag, err := c.Aggreator.addVote(vote); err != nil {
 		return err
 	} else if flag != ACTION_NO {
-		var abaVal *ABAVal
 		if flag == ACTION_ONE {
-			abaVal, _ = NewABAVal(c.Name, vote.Leader, vote.Epoch, vote.Round, FLAG_YES, c.SigService)
-		} else if flag == ACTION_TWO {
-			abaVal, _ = NewABAVal(c.Name, vote.Leader, vote.Epoch, vote.Round, FLAG_NO, c.SigService)
+			return c.invokeABAVal(vote.Leader, vote.Epoch, vote.Round, 0, FLAG_YES)
+		} else {
+			return c.invokeABAVal(vote.Leader, vote.Epoch, vote.Round, 0, FLAG_NO)
 		}
-		c.Transimtor.Send(c.Name, core.NONE, abaVal)
-		c.Transimtor.RecvChannel() <- abaVal
 	}
+
+	return nil
+}
+
+func (c *Core) invokeABAVal(leader core.NodeID, epoch, round, inRound int64, flag uint8) error {
+	logger.Debug.Printf("Invoke ABA epoch %d ex_round %d in_round %d val %d\n", epoch, round, inRound, flag)
+	if c.isInvokeABA(epoch, round, inRound, flag) {
+		return nil
+	}
+	flags, ok := c.abaInvokeFlag[epoch]
+	if !ok {
+		flags = make(map[int64]map[int64]map[uint8]struct{})
+		flags[round] = make(map[int64]map[uint8]struct{})
+		flags[round][inRound] = make(map[uint8]struct{})
+		c.abaInvokeFlag[epoch] = flags
+	}
+	flags[round][inRound][flag] = struct{}{}
+	abaVal, _ := NewABAVal(c.Name, leader, epoch, round, inRound, flag, c.SigService)
+	c.Transimtor.Send(c.Name, core.NONE, abaVal)
+	c.Transimtor.RecvChannel() <- abaVal
 
 	return nil
 }
 
 func (c *Core) handleABAVal(val *ABAVal) error {
-	logger.Debug.Printf("Processing aba val leader %d epoch %d val %d\n", val.Leader, val.Epoch, val.Flag)
+	logger.Debug.Printf("Processing aba val leader %d epoch %d round %d val %d\n", val.Leader, val.Epoch, val.Round, val.Flag)
 	if c.messageFilter(val.Epoch) {
 		return nil
 	}
+
+	go c.getABAInstance(val.Epoch, val.Round).ProcessABAVal(val)
 
 	return nil
 }
 
 func (c *Core) handleABAMux(mux *ABAMux) error {
-	logger.Debug.Printf("Processing aba mux leader %d epoch %d val %d\n", mux.Leader, mux.Epoch, mux.Flag)
+	logger.Debug.Printf("Processing aba mux leader %d epoch %d round %d val %d\n", mux.Leader, mux.Epoch, mux.Round, mux.Flag)
 	if c.messageFilter(mux.Epoch) {
 		return nil
 	}
+
+	go c.getABAInstance(mux.Epoch, mux.Round).ProcessABAMux(mux)
 
 	return nil
 }
 
 func (c *Core) handleCoinShare(share *CoinShare) error {
-	logger.Debug.Printf("Processing coin share epoch %d", share.Epoch)
+	logger.Debug.Printf("Processing coin share epoch %d round %d", share.Epoch, share.Round)
 	if c.messageFilter(share.Epoch) {
 		return nil
+	}
+
+	if ok, coin, err := c.Aggreator.addCoinShare(share); err != nil {
+		return err
+	} else if ok {
+		logger.Debug.Printf("ABA epoch %d ex-round %d in-round %d coin %d\n", share.Epoch, share.Round, share.InRound, coin)
+		go c.getABAInstance(share.Epoch, share.Round).ProcessCoin(share.InRound, coin, share.Leader)
 	}
 
 	return nil
@@ -324,11 +378,50 @@ func (c *Core) handleABAHalt(halt *ABAHalt) error {
 	if c.messageFilter(halt.Epoch) {
 		return nil
 	}
-
+	go c.getABAInstance(halt.Epoch, halt.Round).ProcessHalt(halt)
 	return nil
 }
 
+func (c *Core) processABABack(back *ABABack) error {
+	if back.Typ == ABA_INVOKE {
+		return c.invokeABAVal(back.Leader, back.Epoch, back.ExRound, back.InRound, back.Flag)
+	} else if back.Typ == ABA_HALT {
+		if back.Flag == FLAG_NO { //next round
+			return c.invokeStageTwo(back.Epoch, back.ExRound+1)
+		} else if back.Flag == FLAG_YES { //next epoch
+			return c.handleOutput(back.Epoch, back.Leader)
+		}
+	}
+	return nil
+}
+
+func (c *Core) handleOutput(epoch int64, leader core.NodeID) error {
+	cbc := c.getCBCInstance(epoch, leader, DATA_CBC)
+	if cbc.BlockHash != nil {
+		if block, err := c.getBlock(*cbc.BlockHash); err != nil {
+			logger.Warn.Println(err)
+			c.Commitor.Commit(epoch, leader, nil)
+		} else {
+			c.Commitor.Commit(epoch, leader, block)
+		}
+	}
+	return c.abvanceNextEpoch(epoch + 1)
+}
+
 /**************************** Protocol ********************************/
+
+func (c *Core) abvanceNextEpoch(epoch int64) error {
+	if epoch <= c.Epoch {
+		return nil
+	}
+	logger.Debug.Printf("advance next epoch %d\n", epoch)
+	c.Epoch = epoch
+	block := c.generateBlock(c.Epoch)
+	proposal, _ := NewProposal(c.Name, block, c.Epoch, c.SigService)
+	c.Transimtor.Send(c.Name, core.NONE, proposal)
+	c.Transimtor.RecvChannel() <- proposal
+	return nil
+}
 
 func (c *Core) Run() {
 	block := c.generateBlock(c.Epoch)
@@ -377,7 +470,10 @@ func (c *Core) Run() {
 			}
 		case cbcBack := <-c.cbcCallBack:
 			err = c.processCBCBack(cbcBack)
+		case abaBack := <-c.abaCallBack:
+			err = c.processABABack(abaBack)
 		}
+
 		if err != nil {
 			logger.Warn.Println(err)
 		}

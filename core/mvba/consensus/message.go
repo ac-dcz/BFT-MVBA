@@ -295,17 +295,19 @@ type ABAVal struct {
 	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
+	InRound   int64
 	Flag      uint8
 	Signature crypto.Signature
 }
 
-func NewABAVal(Author, Leader core.NodeID, Epoch, Round int64, Flag uint8, sigService *crypto.SigService) (*ABAVal, error) {
+func NewABAVal(Author, Leader core.NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAVal, error) {
 	val := &ABAVal{
-		Author: Author,
-		Leader: Leader,
-		Epoch:  Epoch,
-		Round:  Round,
-		Flag:   Flag,
+		Author:  Author,
+		Leader:  Leader,
+		Epoch:   Epoch,
+		Round:   Round,
+		InRound: InRound,
+		Flag:    Flag,
 	}
 	sig, err := sigService.RequestSignature(val.Hash())
 	if err != nil {
@@ -338,17 +340,19 @@ type ABAMux struct {
 	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
+	InRound   int64
 	Flag      uint8
 	Signature crypto.Signature
 }
 
-func NewABAMux(Author, Leader core.NodeID, Epoch, Round int64, Flag uint8, sigService *crypto.SigService) (*ABAMux, error) {
+func NewABAMux(Author, Leader core.NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAMux, error) {
 	val := &ABAMux{
-		Author: Author,
-		Leader: Leader,
-		Epoch:  Epoch,
-		Round:  Round,
-		Flag:   Flag,
+		Author:  Author,
+		Leader:  Leader,
+		Epoch:   Epoch,
+		Round:   Round,
+		InRound: InRound,
+		Flag:    Flag,
 	}
 	sig, err := sigService.RequestSignature(val.Hash())
 	if err != nil {
@@ -377,19 +381,21 @@ func (v *ABAMux) MsgType() int {
 }
 
 type CoinShare struct {
-	Author core.NodeID
-	Leader core.NodeID
-	Epoch  int64
-	Round  int64
-	Share  crypto.SignatureShare
+	Author  core.NodeID
+	Leader  core.NodeID
+	Epoch   int64
+	Round   int64
+	InRound int64
+	Share   crypto.SignatureShare
 }
 
-func NewCoinShare(Author, Leader core.NodeID, Epoch, Round int64, sigService *crypto.SigService) (*CoinShare, error) {
+func NewCoinShare(Author, Leader core.NodeID, Epoch, Round, InRound int64, sigService *crypto.SigService) (*CoinShare, error) {
 	coin := &CoinShare{
-		Author: Author,
-		Leader: Leader,
-		Epoch:  Epoch,
-		Round:  Round,
+		Author:  Author,
+		Leader:  Leader,
+		Epoch:   Epoch,
+		Round:   Round,
+		InRound: InRound,
 	}
 	sig, err := sigService.RequestTsSugnature(coin.Hash())
 	if err != nil {
@@ -420,17 +426,19 @@ type ABAHalt struct {
 	Leader    core.NodeID
 	Epoch     int64
 	Round     int64
+	InRound   int64
 	Flag      uint8
 	Signature crypto.Signature
 }
 
-func NewABAHalt(Author, Leader core.NodeID, Epoch, Round int64, Flag uint8, sigService *crypto.SigService) (*ABAHalt, error) {
+func NewABAHalt(Author, Leader core.NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAHalt, error) {
 	h := &ABAHalt{
-		Author: Author,
-		Leader: Leader,
-		Epoch:  Epoch,
-		Round:  Round,
-		Flag:   Flag,
+		Author:  Author,
+		Leader:  Leader,
+		Epoch:   Epoch,
+		Round:   Round,
+		InRound: InRound,
+		Flag:    Flag,
 	}
 	sig, err := sigService.RequestSignature(h.Hash())
 	if err != nil {

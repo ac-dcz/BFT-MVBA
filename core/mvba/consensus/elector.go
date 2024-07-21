@@ -13,9 +13,7 @@ type Elector struct {
 	committee   core.Committee
 	sigService  *crypto.SigService
 	seeds       map[int64]int64
-	randGen     map[int64]*rand.Rand
-	randCnt     map[int64]int
-	leaders     map[int64]map[int64]core.NodeID
+	randGen     map[int64][]core.NodeID
 	used        map[int64]map[core.NodeID]struct{}
 	electShares map[int64][]crypto.SignatureShare
 }
@@ -25,9 +23,7 @@ func NewElector(committee core.Committee, sigService *crypto.SigService) *Electo
 		committee:   committee,
 		sigService:  sigService,
 		seeds:       make(map[int64]int64),
-		randGen:     make(map[int64]*rand.Rand),
-		randCnt:     make(map[int64]int),
-		leaders:     make(map[int64]map[int64]core.NodeID),
+		randGen:     make(map[int64][]core.NodeID),
 		used:        make(map[int64]map[core.NodeID]struct{}),
 		electShares: make(map[int64][]crypto.SignatureShare),
 	}
@@ -72,32 +68,17 @@ func (e *Elector) addElectShare(share *ElectShare) (bool, error) {
 func (e *Elector) addSeed(epoch, seed int64) {
 	logger.Debug.Printf("Epoch %d seed %d\n", epoch, seed)
 	e.seeds[epoch] = seed
-	e.randGen[epoch] = rand.New(rand.NewSource(seed))
-}
-
-func (e *Elector) addLeader(epoch, round int64, leader core.NodeID) {
-	leaders, ok := e.leaders[epoch]
-	if !ok {
-		leaders = make(map[int64]core.NodeID)
-		e.leaders[epoch] = leaders
-	}
-	leaders[round] = leader
+	randLeader := make([]core.NodeID, e.committee.Size())
+	rand.New(rand.NewSource(seed)).Shuffle(len(randLeader), func(i, j int) {
+		randLeader[i], randLeader[j] = randLeader[j], randLeader[i]
+	})
+	e.randGen[epoch] = randLeader
 }
 
 func (e *Elector) Leader(epoch, round int64) core.NodeID {
 	if gen, ok := e.randGen[epoch]; !ok {
 		return core.NONE
 	} else {
-		cnt := e.randCnt[epoch]
-		if round < int64(cnt) {
-			return e.leaders[epoch][round]
-		}
-		for cnt < int(round) {
-			leader := gen.Uint64() % uint64(e.committee.Size())
-			e.addLeader(epoch, int64(cnt)+1, core.NodeID(leader))
-			cnt++
-		}
-		e.randCnt[epoch] = cnt
-		return e.leaders[epoch][round]
+		return gen[round]
 	}
 }
