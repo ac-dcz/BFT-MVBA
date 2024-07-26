@@ -413,6 +413,14 @@ func (c *Core) handleOutput(epoch int64, leader core.NodeID) error {
 			c.Commitor.Commit(epoch, leader, nil)
 		} else {
 			c.Commitor.Commit(epoch, leader, block)
+			if block.Proposer != c.Name {
+				temp := c.getCBCInstance(epoch, c.Name, DATA_CBC).BlockHash
+				if temp != nil {
+					if block, err := c.getBlock(*temp); err == nil && block != nil {
+						c.TxPool.PutBatch(block.Batch)
+					}
+				}
+			}
 		}
 	}
 	return c.abvanceNextEpoch(epoch + 1)

@@ -7,7 +7,9 @@ import (
 	"bft/mvba/network"
 	"bft/mvba/pool"
 	"bft/mvba/store"
+	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,7 +39,7 @@ func Consensus(
 	}
 
 	//step1 .Invoke networl
-	addr := committee.Address(id)
+	addr := fmt.Sprintf(":%s", strings.Split(committee.Address(id), ":")[1])
 	cc := network.NewCodec(DefaultMessageTypeMap)
 	sender := network.NewSender(cc)
 	go sender.Run()

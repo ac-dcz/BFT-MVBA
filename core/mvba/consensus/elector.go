@@ -69,6 +69,9 @@ func (e *Elector) addSeed(epoch, seed int64) {
 	logger.Debug.Printf("Epoch %d seed %d\n", epoch, seed)
 	e.seeds[epoch] = seed
 	randLeader := make([]core.NodeID, e.committee.Size())
+	for i := 0; i < len(randLeader); i++ {
+		randLeader[i] = core.NodeID(i)
+	}
 	rand.New(rand.NewSource(seed)).Shuffle(len(randLeader), func(i, j int) {
 		randLeader[i], randLeader[j] = randLeader[j], randLeader[i]
 	})

@@ -14,7 +14,7 @@ class LocalBench:
 
     def __init__(self, bench_parameters_dict, node_parameters_dict):
         try:
-            self.ts = datetime.now().strftime("%Y-%m-%dv%H:%M:%S")
+            self.ts = datetime.now().strftime("%Y-%m-%dv%H-%M-%S")
             self.bench_parameters = BenchParameters(bench_parameters_dict)
             self.node_parameters = NodeParameters(node_parameters_dict)
         except ConfigError as e:

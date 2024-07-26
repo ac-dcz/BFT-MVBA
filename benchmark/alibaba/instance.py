@@ -18,8 +18,8 @@ from alibaba.settings import Settings, SettingsError
 
 
 class InstanceManager:
-    INSTANCE_NAME = 'lightDAG'
-    SECURITY_GROUP_NAME = 'lightDAG'
+    INSTANCE_NAME = 'BFT-MVBA'
+    SECURITY_GROUP_NAME = 'BFT-MVBA'
     VPC_NAME = 'lightDAG'
 
     def __init__(self, settings):
@@ -158,12 +158,7 @@ class InstanceManager:
             instance_type = self.settings.instance_type,
             ostype = 'linux',
             architecture = 'x86_64',
-            filter=[
-                ecs_20140526_models.DescribeImagesRequestFilter(
-                    key='description',
-                    value='Canonical, Ubuntu, 20.04 LTS, amd64 focal image build on 2020-10-26'
-                )
-            ],
+            image_family='acs:ubuntu_20_04_x64',
             page_size=1,
             page_number=1
         )
@@ -209,8 +204,8 @@ class InstanceManager:
                     instance_type = self.settings.instance_type,
                     instance_name = self.INSTANCE_NAME,
                     host_name = 'ubuntu',
-                    internet_max_bandwidth_in = 100,
-                    internet_max_bandwidth_out = 100,
+                    internet_max_bandwidth_in = 10,
+                    internet_max_bandwidth_out = 10,
                     unique_suffix = False,
                     internet_charge_type = 'PayByTraffic',
                     key_pair_name = self.settings.key_name,
@@ -280,7 +275,7 @@ class InstanceManager:
         try:
             ids, _ = self._get(['Stopping', 'Stopped'])
             for region, client in self.ecs_clients.items():
-                for id in ids[region]:
+                if ids[region]:
                     target = ids[region]
                     target = target if len(target) < max else target[:max]
                     size += len(target)

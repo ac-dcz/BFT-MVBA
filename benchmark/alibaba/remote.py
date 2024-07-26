@@ -150,6 +150,9 @@ class Bench:
         cmd = CommandMaker.cleanup_configs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
+        cmd = CommandMaker.compile().split()
+        subprocess.run(cmd, check=True)
+
         node_instance = bench_parameters.node_instance
         nodes = len(hosts) * node_instance
         # Generate configuration files.
@@ -232,7 +235,7 @@ class Bench:
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
         for _ in progress_bar(range(100), prefix=f'Running benchmark ({duration} sec):'):
-            sleep(ceil(duration / 100))
+            sleep(duration / 100)
         self.kill(hosts=hosts, delete_logs=False)
 
     def download(self,node_instance,ts):
@@ -243,9 +246,9 @@ class Bench:
             c = Connection(host, user='root', connect_kwargs=self.connect)
             for j in range(node_instance):
                 c.get(PathMaker.node_log_info_file(i*node_instance+j,ts), local=PathMaker.node_log_info_file(i*node_instance+j,ts))
-                c.get(PathMaker.node_log_debug_file(i*node_instance+j,ts), local=PathMaker.node_log_debug_file(i*node_instance+j,ts))
-                c.get(PathMaker.node_log_error_file(i*node_instance+j,ts), local=PathMaker.node_log_error_file(i*node_instance+j,ts))
-                c.get(PathMaker.node_log_warn_file(i*node_instance+j,ts), local=PathMaker.node_log_warn_file(i*node_instance+j,ts))
+                # c.get(PathMaker.node_log_debug_file(i*node_instance+j,ts), local=PathMaker.node_log_debug_file(i*node_instance+j,ts))
+                # c.get(PathMaker.node_log_error_file(i*node_instance+j,ts), local=PathMaker.node_log_error_file(i*node_instance+j,ts))
+                # c.get(PathMaker.node_log_warn_file(i*node_instance+j,ts), local=PathMaker.node_log_warn_file(i*node_instance+j,ts))
 
         # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
@@ -261,8 +264,8 @@ class Bench:
             for j in range(node_instance):
                 c.get(PathMaker.node_log_info_file(i*node_instance+j,ts), local=PathMaker.node_log_info_file(i*node_instance+j,ts))
                 # c.get(PathMaker.node_log_debug_file(i*node_instance+j,ts), local=PathMaker.node_log_debug_file(i*node_instance+j,ts))
-                c.get(PathMaker.node_log_error_file(i*node_instance+j,ts), local=PathMaker.node_log_error_file(i*node_instance+j,ts))
-                c.get(PathMaker.node_log_warn_file(i*node_instance+j,ts), local=PathMaker.node_log_warn_file(i*node_instance+j,ts))
+                # c.get(PathMaker.node_log_error_file(i*node_instance+j,ts), local=PathMaker.node_log_error_file(i*node_instance+j,ts))
+                # c.get(PathMaker.node_log_warn_file(i*node_instance+j,ts), local=PathMaker.node_log_warn_file(i*node_instance+j,ts))
 
         # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
@@ -307,7 +310,7 @@ class Bench:
 
                 node_parameters.json['pool']['rate'] = bench_parameters.rate
                 node_parameters.json['pool']['batch_size'] = batch_size
-                self.ts = datetime.now().strftime("%Y-%m-%dv%H:%M:%S")
+                self.ts = datetime.now().strftime("%Y-%m-%dv%H-%M-%S")
                 
                 #Step a: only upload parameters files.
                 try:

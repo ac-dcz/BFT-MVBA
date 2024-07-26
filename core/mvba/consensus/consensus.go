@@ -7,7 +7,9 @@ import (
 	"bft/mvba/network"
 	"bft/mvba/pool"
 	"bft/mvba/store"
+	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,13 +39,14 @@ func Consensus(
 	}
 
 	//step1 .Invoke networl
-	addr := committee.Address(id)
+	addr := fmt.Sprintf(":%s", strings.Split(committee.Address(id), ":")[1])
 	cc := network.NewCodec(DefaultMessageTypeMap)
 	sender := network.NewSender(cc)
 	go sender.Run()
 	receiver := network.NewReceiver(addr, cc)
 	go receiver.Run()
 	transimtor := core.NewTransmitor(sender, receiver, parameters, committee)
+
 	//Step 2: Waiting for all nodes to be online
 	logger.Info.Println("Waiting for all nodes to be online...")
 	time.Sleep(time.Millisecond * time.Duration(parameters.SyncTimeout))

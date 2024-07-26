@@ -39,7 +39,7 @@ class LogParser:
         merged = {}
         for x in input:
             for k, v in x:
-                if not k in merged or merged[k] > v:
+                if not k in merged or merged[k] < v:
                     merged[k] = v
         return merged
 
@@ -51,11 +51,11 @@ class LogParser:
         batchs = { id:self._to_posix(t) for t,id in tmp}
         
         tmp = findall(r'\[INFO] (.*) core.* create Block epoch \d+ node \d+ batch_id (\d+)', log)
-        proposals = { id:self._to_posix(t) for t,id in tmp }
-
+        tmp = { (id,self._to_posix(t)) for t,id in tmp }
+        proposals = self._merge_results([tmp])
 
         tmp = findall(r'\[INFO] (.*) commitor.* commit Block epoch \d+ node \d+ batch_id (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, d in tmp]
+        tmp = [(id, self._to_posix(t)) for t, id in tmp]
         commits = self._merge_results([tmp])
 
         configs = {

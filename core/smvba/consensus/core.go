@@ -426,6 +426,14 @@ func (c *Core) handleOutput(epoch int64, blockHash crypto.Digest) error {
 		return err
 	} else if b != nil {
 		c.Commitor.Commit(b)
+		if b.Proposer != c.Name {
+			temp := c.getSpbInstance(epoch, 0, c.Name).GetBlockHash()
+			if temp != nil {
+				if block, err := c.getBlock(temp.(crypto.Digest)); err == nil && block != nil {
+					c.TxPool.PutBatch(block.Batch)
+				}
+			}
+		}
 	} else {
 		logger.Debug.Printf("Processing retriever epoch %d \n", epoch)
 	}

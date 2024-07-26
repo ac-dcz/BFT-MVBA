@@ -277,8 +277,18 @@ func (c *Core) handleViewChange(v *ViewChange) error {
 	c.viewChangeCnts[v.Epoch]++
 	if v.IsCommit {
 		if block, err := c.GetBlock(*v.BlockHash); err == nil && block != nil {
-			block.Epoch = v.Epoch
+			block.Epoch = v.Epoch // very import
 			c.Commitor.Commit(block)
+
+			if block.Proposer != c.Name {
+				temp := c.GetPBInstance(v.Epoch, c.Name).BlockHash()
+				if temp != nil {
+					if block, err := c.GetBlock(*temp); err == nil && block != nil {
+						c.TxPool.PutBatch(block.Batch)
+					}
+				}
+			}
+
 		}
 		c.commitFlag[v.Epoch] = struct{}{}
 		halt, _ := NewHalt(c.Name, v.Leader, *v.BlockHash, v.Epoch, c.SigService)
@@ -311,8 +321,16 @@ func (c *Core) handleHalt(halt *Halt) error {
 	}
 
 	if block, err := c.GetBlock(halt.BlockHash); err == nil && block != nil {
-		block.Epoch = halt.Epoch
+		block.Epoch = halt.Epoch //very import
 		c.Commitor.Commit(block)
+		if block.Proposer != c.Name {
+			temp := c.GetPBInstance(halt.Epoch, c.Name).BlockHash()
+			if temp != nil {
+				if block, err := c.GetBlock(*temp); err == nil && block != nil {
+					c.TxPool.PutBatch(block.Batch)
+				}
+			}
+		}
 	}
 	c.commitFlag[halt.Epoch] = struct{}{}
 	temp, _ := NewHalt(c.Name, halt.Leader, halt.BlockHash, halt.Epoch, c.SigService)
