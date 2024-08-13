@@ -3,8 +3,8 @@ package node
 import (
 	"bft/mvba/config"
 	"bft/mvba/core"
+	mercury "bft/mvba/core/mercury/consensus"
 	mvba "bft/mvba/core/mvba/consensus"
-	parmvba "bft/mvba/core/parmvba/consensus"
 	smvba "bft/mvba/core/smvba/consensus"
 	vaba "bft/mvba/core/vaba/consensus"
 	"bft/mvba/crypto"
@@ -68,8 +68,8 @@ func NewNode(
 		err = mvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	case core.SMVBA:
 		err = smvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
-	case core.PARMVBA:
-		err = parmvba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
+	case core.MERCURY:
+		err = mercury.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	case core.VABA:
 		err = vaba.Consensus(core.NodeID(nodeID), commitee, coreParameters, txpool, _store, sigService, commitChannel)
 	}

@@ -6,7 +6,7 @@ const (
 	MVBA = iota
 	SMVBA
 	VABA
-	PARMVBA
+	MERCURY
 )
 
 type Parameters struct {

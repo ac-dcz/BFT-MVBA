@@ -17,7 +17,7 @@ def local(ctx):
         'rate': 5_000,                  # tx send rate
         'batch_size': 500,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
-        'protocol': "mvba"
+        'protocol': "Mercury"
     }
     node_params = {
         "pool": {
@@ -33,7 +33,7 @@ def local(ctx):
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
             "retry_delay": 5_000,       # request block period
-            'protocol': "mvba"
+            'protocol': "Mercury"
         }
     }
     try:
@@ -108,19 +108,19 @@ def info(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [4],
-        'node_instance': 2,               # the number of running instance for a node  (max = 4)
-        'duration': 20,
+        'nodes': [7],
+        'node_instance': 1,               # the number of running instance for a node  (max = 4)
+        'duration': 40,
         'rate': 3_000,                    # tx send rate
-        'batch_size': [800],              # the max number of tx that can be hold 
-        'log_level': 0b1111,              # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
-        'protocol_name': "lightDAG",
+        'batch_size': [ 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536],              # the max number of tx that can be hold 
+        'log_level': 0b0001,              # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
+        'protocol': "vaba",
         'runs': 1
     }
     node_params = {
         "pool": {
             # "rate": 1_000,              # ignore: tx send rate 
-            "tx_size": 64,                # tx size
+            "tx_size": 256,               # tx size
             # "batch_size": 200,          # ignore: the max number of tx that can be hold 
             "max_queue_size": 10_000 
 	    },
@@ -129,8 +129,9 @@ def remote(ctx):
             "network_delay": 2_000,     # network delay
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
-            "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000        # request block period
+            "faults": 2,                # the number of byzantine node
+            "retry_delay": 5_000,        # request block period
+            'protocol': "vaba"
         }
     }
     try:
@@ -147,7 +148,7 @@ def kill(ctx):
         Print.error(e)
 
 @task
-def download(ctx,node_instance=4,ts="2024-06-04v10:15:10"):
+def download(ctx,node_instance=2,ts="2024-07-26v02-00-24"):
     ''' download logs '''
     try:
         print(Bench(ctx).download(node_instance,ts).result())

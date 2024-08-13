@@ -98,7 +98,7 @@ class NodeParameters:
         # MVBA = iota
         # SMVBA
         # VABA
-        # PARMVBA
+        # Mercury
         protocol = json['consensus']['protocol']
         if protocol == "mvba":
             json['consensus']['protocol'] = 0
@@ -106,7 +106,7 @@ class NodeParameters:
             json['consensus']['protocol'] = 1
         elif protocol == "vaba":
             json['consensus']['protocol'] = 2
-        elif protocol == "parmvba":
+        elif protocol == "Mercury":
             json['consensus']['protocol'] = 3
         else:
             raise ConfigError(f'invaild protocol type: {protocol}')
